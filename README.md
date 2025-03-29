@@ -7,15 +7,23 @@ This project is a Python implementation of an AI-enhanced English flashcard gene
 The English Flashcard Generator:
 
 1. Reads markdown notes from a source file
-2. Processes these notes using a group of specialized AI agents:
-   - **TeacherAgent**: Analyzes notes and requests flashcard generation
-   - **ReviewerAgent**: Reviews flashcards for quality and correctness
-   - **ExtractorAgent**: Formats flashcards into JSON
+2. Processes these notes using a group of specialized AI agents in a finite state machine pattern:
+   - **TeacherAgent**: Analyzes notes and creates flashcards
+   - **ReviewerAgent**: Reviews flashcards for quality and correctness, providing feedback
+   - **ExtractorAgent**: Formats approved flashcards into JSON format
 3. Generates flashcards in a structured format
 4. Saves both the flashcards and processed notes to output files
 
+The agents communicate with each other in a controlled workflow:
+- The TeacherAgent creates initial flashcards from the notes
+- The ReviewerAgent evaluates the flashcards and either approves them or sends them back to the TeacherAgent for revision
+- Once approved, the ExtractorAgent formats the flashcards into a structured JSON format
+- The system then converts the JSON to the expected format and saves the output files
+
 ## Features
 
+- Finite state machine approach for controlled agent communication
+- Interactive agent collaboration with feedback loops
 - Support for multiple LLM providers (OpenAI, Azure, OpenRouter)
 - Configurable agent parameters (temperature, max tokens)
 - Customizable file paths and templates
@@ -103,8 +111,16 @@ python main.py
 
 The program will:
 1. Read the source markdown file
-2. Process each section using the agent group chat
+2. Process each section using the agent group chat with a finite state machine approach:
+   - The TeacherAgent creates initial flashcards from the notes
+   - The ReviewerAgent evaluates the flashcards and provides feedback
+   - If the ReviewerAgent approves the flashcards (by saying "OK!"), they are sent to the ExtractorAgent
+   - If the ReviewerAgent has suggestions, the flashcards are sent back to the TeacherAgent for revision
+   - The ExtractorAgent formats the approved flashcards into JSON
+   - The conversation terminates automatically after the ExtractorAgent completes its work
 3. Save the generated flashcards and notes to the specified output folders
+
+The agent interaction is controlled by a custom speaker selection function that determines which agent should speak next based on the current state of the conversation.
 
 ## Input Format
 

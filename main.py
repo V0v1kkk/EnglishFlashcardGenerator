@@ -264,8 +264,10 @@ def custom_speaker_selection(last_speaker, groupchat):
         return reviewer_agent
     
     # Extractor agent's response goes back to user proxy
+    # After the extractor agent has processed the cards, we want to terminate the conversation
     if last_speaker is extractor_agent:
-        return user_proxy
+        # Return None to terminate the conversation
+        return None
     
     # Default to random selection if we can't determine the next speaker
     return "random"
@@ -296,10 +298,11 @@ async def process_section_with_groupchat(section: str, app_settings: AppSettings
         extractor = FlashCardExtractorAgent(extractor_settings.temperature, extractor_settings.max_tokens)
         extractor_agent = create_agent_for_agent("ExtractorAgent", extractor, app_settings)
         
-        # Create a user proxy agent
+        # Create a user proxy agent with TERMINATE mode
         user_proxy = autogen.UserProxyAgent(
             name="UserProxy",
-            human_input_mode="NEVER",
+            human_input_mode="TERMINATE",
+            is_termination_msg=lambda x: x.get("name") == "FlashCardExtractorAgent" and "FlashCards" in x.get("content", ""),
             code_execution_config=False  # Disable code execution
         )
         
@@ -397,8 +400,20 @@ async def process_section_with_groupchat(section: str, app_settings: AppSettings
         content = content.strip()
         
         # Parse the JSON
-        flash_cards = json.loads(content)
-        flash_cards_response = FlashCardsResponse(**flash_cards)
+        flash_cards_dict = json.loads(content)
+        
+        # Convert capitalized field names to lowercase
+        if "FlashCards" in flash_cards_dict:
+            for i, card in enumerate(flash_cards_dict["FlashCards"]):
+                if "Front" in card:
+                    card["front"] = card.pop("Front")
+                if "Back" in card:
+                    card["back"] = card.pop("Back")
+                if "IsReversed" in card:
+                    card["is_reversed"] = card.pop("IsReversed")
+        
+        # Parse the modified JSON
+        flash_cards_response = FlashCardsResponse(**flash_cards_dict)
         
         # Return the formatted flashcards
         return flash_cards_response.format_flash_cards()
