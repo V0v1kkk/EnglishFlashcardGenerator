@@ -128,22 +128,14 @@ class FlashCardExtractorAgent(AgentBase):
         azure_config = config.copy()
         azure_config["model"] = model_name
         
-        # Models that don't support response_format
-        unsupported_models = ["o3-mini-2025-01-31"]
+        # For Azure, we'll use a stronger instruction instead of response_format
+        # since Azure OpenAI API doesn't support response_format for gpt-4o
+        instruction = self._instruction + """
         
-        # Add response format to config if supported
-        if model_name not in unsupported_models:
-            azure_config["response_format"] = {"type": "json_object"}
-        
-        # Add a stronger instruction for models that don't support response_format
-        instruction = self._instruction
-        if model_name in unsupported_models:
-            instruction += """
-            
-            IMPORTANT: Since you don't support the response_format parameter, it's crucial that you 
-            strictly follow the JSON format instructions above. Your entire response must be a valid 
-            JSON object and nothing else - no explanations, no markdown formatting, just the JSON.
-            """
+        IMPORTANT: It's crucial that you strictly follow the JSON format instructions above.
+        Your entire response must be a valid JSON object and nothing else - no explanations,
+        no markdown formatting, just the JSON.
+        """
         
         self._agent = autogen.AssistantAgent(
             name=self._name,

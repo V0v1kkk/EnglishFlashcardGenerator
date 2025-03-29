@@ -168,8 +168,9 @@ def create_agent_with_azure(agent_base: AgentBase, settings, agent_settings):
     # Create Azure configuration
     config = {
         "api_key": settings.api_key,
-        "endpoint": settings.endpoint,
-        "api_version": settings.api_version or "2024-08-01-preview"
+        "base_url": settings.endpoint,
+        "api_version": settings.api_version or "2024-08-01-preview",
+        "api_type": "azure"
     }
     
     # Add temperature only if the model supports it

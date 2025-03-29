@@ -49,6 +49,8 @@ class FlashcardReviewerAgent(AgentBase):
         Answer 'OK!' in the LAST line of your answer if new flashcards are good for memorization.
         Otherwise provide feedback and suggestions.
         Don't put 'OK!' into the last line if you have any suggestions and they haven't applied yet.
+        
+        You must never put 'OK!' into the last line if you have any suggestions and they haven't applied yet.
         """
     
     @property
