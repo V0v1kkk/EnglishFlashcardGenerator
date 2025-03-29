@@ -29,7 +29,7 @@ from agents.flashcard_extractor_agent import FlashCardExtractorAgent
 # Constants
 MAX_PROCESSING_ATTEMPTS = 3
 # For testing purposes, set to True to process only the first section
-TEST_MODE = True
+TEST_MODE = False
 MAX_SECTIONS_IN_TEST_MODE = 1
 
 

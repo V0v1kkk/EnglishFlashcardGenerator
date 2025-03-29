@@ -46,7 +46,7 @@ The agents communicate with each other in a controlled workflow:
 
 2. Install the required packages:
    ```
-   pip install pyautogen pydantic
+   pip install -r requirements.txt
    ```
 
 3. Copy the template configuration file and update it with your API keys:

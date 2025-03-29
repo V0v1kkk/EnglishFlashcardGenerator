@@ -2,6 +2,14 @@
 
 This file contains my English learning notes.
 
+## Legend
+
+Lesions divided by days.
+
+- ??? - questions section that I asked to a teacher
+- **bold** - important or the main verb. sometimes it's a stressed letter.
+- *italic* - example
+
 ## [[2025-03-28-Friday|28.03.2025]]
 
 Today we learned about phrasal verbs.
