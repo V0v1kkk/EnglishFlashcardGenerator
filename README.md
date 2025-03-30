@@ -7,7 +7,7 @@ It processes markdown notes from English lessons and generates flashcards to hel
 
 This project is a trying out of the Loop Agentic AI pattern:
 ```mermaid
-flowchart TD
+flowchart LR
 
     RawNote[Raw Note]
     TeacherAgent[English teacher agent]
