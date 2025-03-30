@@ -1,8 +1,31 @@
 # English Flashcard Generator (Python AG2 Implementation)
 
-This project is a Python implementation of an AI-enhanced English flashcard generator using the AG2 framework. It processes markdown notes from English lessons and generates flashcards to help with memorization.
+This project is a Python implementation of an AI-enhanced English flashcard generator using the AG2 framework. 
+It processes markdown notes from English lessons and generates flashcards to help with memorization.
 
 ## Overview
+
+This project is a trying out of the Loop Agentic AI pattern:
+```mermaid
+flowchart TD
+
+    RawNote[Raw Note]
+    TeacherAgent[English teacher agent]
+    ReviewerAgent[Card reviewer agent]
+    ExtractorAgent[Cards extractor agent]
+    Cards[&quotAnki&quot cards]
+
+    RawNote --> TeacherAgent
+    TeacherAgent --> ReviewerAgent
+    ReviewerAgent --> TeacherAgent
+    ReviewerAgent --> ExtractorAgent
+    ExtractorAgent --> Cards
+```
+
+The project has started with .Net version of the Autogen framework, which has been suspended.
+After that the python version of the AG2 framework has been created, which is a port of the .Net version.
+The python version itself is a try of agentic code editing.
+
 
 The English Flashcard Generator:
 
@@ -40,8 +63,8 @@ The agents communicate with each other in a controlled workflow:
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/EnglishFlashcardGeneratorPython.git
-   cd EnglishFlashcardGeneratorPython
+   git clone https://github.com/V0v1kkk/EnglishFlashcardGenerator.git
+   cd EnglishFlashcardGenerator
    ```
 
 2. Install the required packages:
@@ -139,7 +162,7 @@ The program generates two types of output files:
 ## Project Structure
 
 ```
-EnglishFlashcardGeneratorPython/
+EnglishFlashcardGenerator/
 ├── main.py                     # Main entry point
 ├── appsettings.json            # Configuration file
 ├── appsettings.template.json   # Template configuration file
