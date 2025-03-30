@@ -13,7 +13,7 @@ flowchart LR
     TeacherAgent[English teacher agent]
     ReviewerAgent[Card reviewer agent]
     ExtractorAgent[Cards extractor agent]
-    Cards[&quotAnki&quot cards]
+    Cards[Anki-like cards]
 
     RawNote --> TeacherAgent
     TeacherAgent --> ReviewerAgent
@@ -21,6 +21,10 @@ flowchart LR
     ReviewerAgent --> ExtractorAgent
     ExtractorAgent --> Cards
 ```
+
+I personally use Obsidian note-tanking app to store my notes, and I wanted to create a tool that would help me generate flashcards from my notes.
+I found the [Obsidian Spaced Repetition Plugin](https://github.com/st3v3nmw/obsidian-spaced-repetition) which I decided to use for flashcard learning.
+The project generates flashcards in a format compatible with the plugin.
 
 The project has started with .Net version of the Autogen framework, which has been suspended.
 After that the python version of the AG2 framework has been created, which is a port of the .Net version.
