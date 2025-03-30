@@ -95,6 +95,8 @@ class EnglishTeacherAgent(AgentBase):
         The first side: <question>
         The second side: <answer>
         Double sided card: <yes/no>
+        
+        Do not provide examples in general. Include examples into first or second side of the card.
         """
     
     @property
