@@ -13,7 +13,7 @@ import asyncio
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
-# Import AG2 (pyautogen)
+# Import AG2 (ag2)
 import autogen
 
 # Import local modules
