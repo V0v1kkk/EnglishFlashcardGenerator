@@ -1,7 +1,13 @@
 namespace EnglishFlashcardGenerator.Core
 
 open System
+open System.Net.Http
+open System.Net.Http.Headers
+open System.Text
+open System.Text.Json
 open System.Text.RegularExpressions
+open System.Threading
+open System.Threading.Tasks
 
 [<RequireQualifiedAccess>]
 module FakeTeacherAgent =
@@ -19,6 +25,101 @@ module FakeTeacherAgent =
                     if String.IsNullOrWhiteSpace value then None else Some value })
             |> Seq.toList
         { Request = request; Cards = cards }
+
+[<RequireQualifiedAccess>]
+module OpenAICompatibleTeacherAgent =
+    let private systemPrompt =
+        """You are an English teacher generating Obsidian Spaced Repetition flashcards.
+Return only flashcards in multiline format:
+front
+?
+back
+or
+front
+??
+back
+Do not use Markdown tables, JSON, scheduling metadata, YAML sr-* fields, <!--SR:...-->, [!sr|card-metadata], :: delimiters, #flashcards, or #review tags inside card text.
+If you include an example, put it on the next non-empty back line exactly as: *Example sentence: ...*
+Do not put blank lines inside a single card. Separate cards with one blank line."""
+
+    let private userPrompt direction (request: GenerationRequest) =
+        let separator = CardDirection.separator direction
+        $"""Generate concise English learning flashcards for this note section.
+Use `{separator}` as the separator line for every card.
+`?` means one-way card. `??` means bidirectional card with a reversed sibling card.
+Return at most 5 cards.
+
+Section heading:
+{request.Section.HeadingText}
+
+Section markdown:
+{request.Section.RawText}"""
+
+    let private requireJsonString (propertyName: string) (element: JsonElement) =
+        match element.TryGetProperty(propertyName) with
+        | true, value when value.ValueKind = JsonValueKind.String -> value.GetString()
+        | _ -> invalidOp $"OpenAI-compatible response did not include {propertyName}."
+
+    let private extractContent (json: string) =
+        use document = JsonDocument.Parse(json)
+        let root = document.RootElement
+        match root.TryGetProperty("choices") with
+        | false, _ -> invalidOp "OpenAI-compatible response did not include choices."
+        | true, choices when choices.ValueKind <> JsonValueKind.Array || choices.GetArrayLength() = 0 ->
+            invalidOp "OpenAI-compatible response choices were empty."
+        | true, choices ->
+            let first = choices.[0]
+            match first.TryGetProperty("message") with
+            | true, message -> requireJsonString "content" message
+            | false, _ ->
+                match first.TryGetProperty("text") with
+                | true, text when text.ValueKind = JsonValueKind.String -> text.GetString()
+                | _ -> invalidOp "OpenAI-compatible response did not include message.content."
+
+    let private buildRequestJson options direction request =
+        JsonSerializer.Serialize(
+            {| model = options.Model
+               messages =
+                [| {| role = "system"; content = systemPrompt |}
+                   {| role = "user"; content = userPrompt direction request |} |]
+               temperature = options.Temperature
+               max_tokens = options.MaxOutputTokens |})
+
+    let private endpoint (baseUrl: string) =
+        let trimmed = baseUrl.TrimEnd('/')
+        if trimmed.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase) then trimmed
+        else $"{trimmed}/chat/completions"
+
+    let generateWithClient (client: HttpClient) (options: LlmOptions) direction (request: GenerationRequest) (ct: CancellationToken) = task {
+        use message = new HttpRequestMessage(HttpMethod.Post, endpoint options.BaseUrl)
+        message.Headers.Authorization <- AuthenticationHeaderValue("Bearer", options.ApiKey)
+        message.Content <- new StringContent(buildRequestJson options direction request, Encoding.UTF8, "application/json")
+        use! response = client.SendAsync(message, ct)
+        let! body = response.Content.ReadAsStringAsync(ct)
+        if not response.IsSuccessStatusCode then
+            return invalidOp $"OpenAI-compatible chat request failed with HTTP {int response.StatusCode}."
+        else
+            let content = extractContent body
+            let cards = ObsidianSrCardParser.parse content
+            if cards.IsEmpty then
+                return invalidOp "OpenAI-compatible chat response did not contain any parseable Obsidian SR cards."
+            else
+                return { Request = request; Cards = cards }
+    }
+
+    let generate options direction request ct = task {
+        use client = new HttpClient(Timeout = TimeSpan.FromSeconds(float options.TimeoutSeconds))
+        return! generateWithClient client options direction request ct
+    }
+
+[<RequireQualifiedAccess>]
+module TeacherAgent =
+    let generateAsync (options: GenerationOptions) (request: GenerationRequest) (ct: CancellationToken) = task {
+        match options.Mode, options.Llm with
+        | Fake, _ -> return FakeTeacherAgent.generate request
+        | OpenAICompatible, Some llm -> return! OpenAICompatibleTeacherAgent.generate llm options.CardDirection request ct
+        | OpenAICompatible, None -> return invalidOp "OpenAI-compatible generator mode requires LLM options."
+    }
 
 [<RequireQualifiedAccess>]
 module FakeReviewerAgent =
@@ -40,4 +141,9 @@ module CardNormalizer =
             { Section = review.Draft.Request.Section
               Cards =
                 review.Draft.Cards
+                |> List.map (fun card ->
+                    { Front = CardContentSanitizer.clean card.Front
+                      Back = CardContentSanitizer.clean card.Back
+                      Example = card.Example |> Option.map CardContentSanitizer.clean |> Option.filter (String.IsNullOrWhiteSpace >> not) })
+                |> List.filter (fun card -> not (String.IsNullOrWhiteSpace card.Front) && not (String.IsNullOrWhiteSpace card.Back))
                 |> List.distinctBy (fun c -> c.Front.Trim().ToLowerInvariant()) }

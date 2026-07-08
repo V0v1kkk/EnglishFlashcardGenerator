@@ -11,16 +11,23 @@ module FlashcardWorkflow =
         let fn = Func<'input, 'output>(f)
         ExecutorBindingExtensions.BindAsExecutor<'input, 'output>(fn, name, null, false)
 
-    let build (output: OutputOptions) =
+    let private bindAsync name (f: 'input -> CancellationToken -> Task<'output>) : ExecutorBinding =
+        let fn = Func<'input, CancellationToken, ValueTask<'output>>(fun input ct -> ValueTask<'output>(f input ct))
+        ExecutorBindingExtensions.BindAsExecutor<'input, 'output>(fn, name, null, false)
+
+    let private chooseSection maxSections document =
+        if maxSections < 1 || maxSections > 2 then
+            invalidArg "max-sections" "Max sections must be 1 or 2 for bounded smoke runs."
+        match SectionPlanner.chooseLatestDatedSection document with
+        | Some request -> request
+        | None -> failwith "No dated level-2 markdown section found."
+
+    let build (output: OutputOptions) (generation: GenerationOptions) =
         let parser =
             bind "markdown-parser" (fun input ->
                 MarkdownDocumentParser.parse (Some input.SourcePath) input.MarkdownText)
-        let planner =
-            bind "section-planner" (fun document ->
-                match SectionPlanner.chooseLatestDatedSection document with
-                | Some request -> request
-                | None -> failwith "No dated level-2 markdown section found.")
-        let teacher = bind "fake-teacher-agent" FakeTeacherAgent.generate
+        let planner = bind "section-planner" (chooseSection generation.MaxSections)
+        let teacher = bindAsync "teacher-agent" (fun request ct -> TeacherAgent.generateAsync generation request ct)
         let reviewer = bind "fake-reviewer-agent" FakeReviewerAgent.review
         let normalizer = bind "card-normalizer" CardNormalizer.normalize
         let writer =
@@ -39,11 +46,11 @@ module FlashcardWorkflow =
             .AddEdge(normalizer, writer)
             .WithOutputFrom(writer)
             .WithName("EnglishFlashcardGenerator.FSharpVerticalSlice")
-            .WithDescription("F# Microsoft Agent Framework workflow: Markdig parser -> fake teacher -> reviewer -> normalizer -> writer")
+            .WithDescription("F# Microsoft Agent Framework workflow: Markdig parser -> teacher generator -> reviewer -> normalizer -> writer")
             .Build()
 
     let runAsync (input: WorkflowInput) (ct: CancellationToken) = task {
-        let workflow = build input.Output
+        let workflow = build input.Output input.Generation
         let! run = InProcessExecution.RunAsync(workflow, input, cancellationToken = ct).AsTask()
         return
             run.NewEvents

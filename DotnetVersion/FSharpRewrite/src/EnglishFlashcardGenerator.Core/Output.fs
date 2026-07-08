@@ -3,27 +3,92 @@ namespace EnglishFlashcardGenerator.Core
 open System
 open System.IO
 open System.Text
+open System.Text.RegularExpressions
+
+[<RequireQualifiedAccess>]
+module CardContentSanitizer =
+    let private forbiddenLine (line: string) =
+        let trimmed = line.Trim()
+        trimmed = "?"
+        || trimmed = "??"
+        || trimmed.StartsWith("<!--SR:", StringComparison.OrdinalIgnoreCase)
+        || trimmed.Contains("> [!sr|card-metadata]", StringComparison.OrdinalIgnoreCase)
+        || Regex.IsMatch(trimmed, @"^sr-[A-Za-z0-9_-]+\s*:")
+        || trimmed.Equals("#flashcards", StringComparison.OrdinalIgnoreCase)
+        || trimmed.Equals("#review", StringComparison.OrdinalIgnoreCase)
+
+    let clean (value: string) =
+        if isNull value then
+            ""
+        else
+            value.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n')
+            |> Array.map (fun line -> line.Replace("::", ":").Trim())
+            |> Array.filter (fun line -> not (String.IsNullOrWhiteSpace line))
+            |> Array.filter (forbiddenLine >> not)
+            |> String.concat " "
+            |> fun s -> s.Trim()
 
 [<RequireQualifiedAccess>]
 module FlashcardFormatter =
-    let formatCard (card: FlashCard) =
+    let formatCardWithDirection direction (card: FlashCard) =
+        let front = CardContentSanitizer.clean card.Front
+        let back = CardContentSanitizer.clean card.Back
+        let separator = CardDirection.separator direction
         let lines =
-            match card.Example with
+            match card.Example |> Option.map CardContentSanitizer.clean with
             | Some example when not (String.IsNullOrWhiteSpace example) ->
-                [ card.Front
-                  "??"
-                  card.Back
-                  $"*Example sentence: {example.Trim()}*" ]
+                [ front
+                  separator
+                  back
+                  $"*Example sentence: {example}*" ]
             | _ ->
-                [ card.Front
-                  "??"
-                  card.Back ]
-        String.concat "\n" lines
+                [ front
+                  separator
+                  back ]
+        lines
+        |> List.filter (String.IsNullOrWhiteSpace >> not)
+        |> String.concat "\n"
 
-    let formatCards cards =
+    let formatCard card = formatCardWithDirection CardDirection.defaultValue card
+
+    let formatCardsWithDirection direction cards =
         cards
-        |> List.map formatCard
+        |> List.map (formatCardWithDirection direction)
         |> String.concat "\n\n"
+
+    let formatCards cards = formatCardsWithDirection CardDirection.defaultValue cards
+
+[<RequireQualifiedAccess>]
+module ObsidianSrCardParser =
+    let private tryParseBlock (block: string) =
+        let lines =
+            block.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n')
+            |> Array.map (fun line -> line.Trim())
+            |> Array.filter (String.IsNullOrWhiteSpace >> not)
+            |> Array.toList
+
+        let separatorIndex = lines |> List.tryFindIndex (fun line -> line = "?" || line = "??")
+        match separatorIndex with
+        | None -> None
+        | Some index when index = 0 || index = lines.Length - 1 -> None
+        | Some index ->
+            let front = lines |> List.take index |> String.concat " " |> CardContentSanitizer.clean
+            let backLines = lines |> List.skip (index + 1)
+            let examplePrefix = "*Example sentence:"
+            let example, definitionLines =
+                match backLines |> List.tryLast with
+                | Some last when last.StartsWith(examplePrefix, StringComparison.OrdinalIgnoreCase) && last.EndsWith("*") ->
+                    let example = last.Substring(examplePrefix.Length).Trim().TrimEnd('*').Trim()
+                    Some (CardContentSanitizer.clean example), backLines |> List.take (backLines.Length - 1)
+                | _ -> None, backLines
+            let back = definitionLines |> String.concat " " |> CardContentSanitizer.clean
+            if String.IsNullOrWhiteSpace front || String.IsNullOrWhiteSpace back then None
+            else Some { Front = front; Back = back; Example = example }
+
+    let parse (content: string) =
+        content.Replace("\r\n", "\n").Replace("\r", "\n").Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
+        |> Array.choose tryParseBlock
+        |> Array.toList
 
 [<RequireQualifiedAccess>]
 module OutputPathResolver =
@@ -47,7 +112,7 @@ module MarkdownOutputWriter =
 
     let buildPlan (output: OutputOptions) (normalized: NormalizedCards) =
         let section = normalized.Section
-        let cardBody = FlashcardFormatter.formatCards normalized.Cards
+        let cardBody = FlashcardFormatter.formatCardsWithDirection output.CardDirection normalized.Cards
         let noteBody = stripHeadingLine section.RawText
         let cardsContent =
             $"---\ntags:\n  - english\n  - flashcards\nsource: {section.HeadingText}\n---\n\n# Flashcards for {section.HeadingText}\n\n{cardBody}\n"

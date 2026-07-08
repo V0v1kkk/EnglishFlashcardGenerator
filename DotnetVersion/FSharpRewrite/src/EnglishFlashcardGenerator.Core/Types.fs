@@ -76,10 +76,73 @@ type WriteMode =
     | DryRun
     | Apply
 
+type CardDirection =
+    | OneWay
+    | Bidirectional
+
+[<RequireQualifiedAccess>]
+module CardDirection =
+    let defaultValue = Bidirectional
+
+    let separator = function
+        | OneWay -> "?"
+        | Bidirectional -> "??"
+
+    let tryParse (value: string) =
+        match value.Trim().ToLowerInvariant() with
+        | "one-way" | "oneway" | "one_way" | "forward" | "?" -> Some OneWay
+        | "bidirectional" | "bi-directional" | "reverse" | "reversed" | "??" -> Some Bidirectional
+        | _ -> None
+
+    let parse (value: string) =
+        match tryParse value with
+        | Some direction -> direction
+        | None -> invalidArg "card-mode" "Card mode must be one-way or bidirectional."
+
+type GeneratorMode =
+    | Fake
+    | OpenAICompatible
+
+[<RequireQualifiedAccess>]
+module GeneratorMode =
+    let tryParse (value: string) =
+        match value.Trim().ToLowerInvariant() with
+        | "fake" -> Some Fake
+        | "openai" | "local" | "litellm" -> Some OpenAICompatible
+        | _ -> None
+
+    let parse (value: string) =
+        match tryParse value with
+        | Some mode -> mode
+        | None -> invalidArg "generator-mode" "Generator mode must be fake, openai, local, or litellm."
+
+type LlmOptions =
+    { BaseUrl: string
+      ApiKey: string
+      Model: string
+      TimeoutSeconds: int
+      MaxOutputTokens: int
+      Temperature: float }
+
+type GenerationOptions =
+    { Mode: GeneratorMode
+      CardDirection: CardDirection
+      MaxSections: int
+      Llm: LlmOptions option }
+
+[<RequireQualifiedAccess>]
+module GenerationOptions =
+    let defaultValue =
+        { Mode = Fake
+          CardDirection = CardDirection.defaultValue
+          MaxSections = 1
+          Llm = None }
+
 type OutputOptions =
     { CardsDirectory: OutputDirectory
       NotesDirectory: OutputDirectory
-      Mode: WriteMode }
+      Mode: WriteMode
+      CardDirection: CardDirection }
 
 type WritePlan =
     { CardsPath: string
@@ -91,7 +154,8 @@ type WritePlan =
 type WorkflowInput =
     { SourcePath: SourcePath
       MarkdownText: string
-      Output: OutputOptions }
+      Output: OutputOptions
+      Generation: GenerationOptions }
 
 type WorkflowRunResult =
     { ParsedSections: int
