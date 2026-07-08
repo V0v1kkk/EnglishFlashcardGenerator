@@ -7,11 +7,18 @@ open System.Text
 [<RequireQualifiedAccess>]
 module FlashcardFormatter =
     let formatCard (card: FlashCard) =
-        let back =
+        let lines =
             match card.Example with
-            | Some example when not (String.IsNullOrWhiteSpace example) -> $"{card.Back}\n\n{example}"
-            | _ -> card.Back
-        $"{card.Front}:: {back}"
+            | Some example when not (String.IsNullOrWhiteSpace example) ->
+                [ card.Front
+                  "??"
+                  card.Back
+                  $"*Example sentence: {example.Trim()}*" ]
+            | _ ->
+                [ card.Front
+                  "??"
+                  card.Back ]
+        String.concat "\n" lines
 
     let formatCards cards =
         cards

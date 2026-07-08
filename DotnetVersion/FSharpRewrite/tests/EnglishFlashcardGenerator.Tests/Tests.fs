@@ -98,5 +98,18 @@ module WorkflowTests =
         let! result = FlashcardWorkflow.runAsync input CancellationToken.None
         Assert.False(File.Exists result.WritePlan.CardsPath)
         Assert.False(File.Exists result.WritePlan.NotePath)
-        Assert.Contains("look up::", result.WritePlan.CardsContent)
+        Assert.Contains("look up\n??\nto search for information", result.WritePlan.CardsContent)
+        Assert.Contains("*Example sentence: I looked up the word in the dictionary.*", result.WritePlan.CardsContent)
+        Assert.DoesNotContain("look up::", result.WritePlan.CardsContent)
     }
+
+    [<Fact>]
+    let ``flashcard formatter uses question marker format`` () =
+        let card =
+            { Front = "look up"
+              Back = "to search for information"
+              Example = Some "I looked up the word in the dictionary." }
+
+        let formatted = FlashcardFormatter.formatCard card
+
+        Assert.Equal("look up\n??\nto search for information\n*Example sentence: I looked up the word in the dictionary.*", formatted)
