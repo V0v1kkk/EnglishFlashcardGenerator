@@ -57,6 +57,6 @@ dotnet run --project src/EnglishFlashcardGenerator.Cli \
   --max-output-tokens 2048
 ```
 
-The API key is read from `--llm-api-key` or `LITELLM_API_KEY`. Do not commit keys or put them in templates. The adapter calls the OpenAI-compatible `/chat/completions` endpoint and parses the same multiline Obsidian SR cards that the formatter writes.
+The API key is read from `--llm-api-key` or `LITELLM_API_KEY`. Do not commit keys or put them in templates. CLI values take precedence over environment values. The smoke adapter also accepts environment configuration for mode (`LITELLM_MODE` / `GENERATOR_MODE` / `LLM_MODE`), base URL (`LITELLM_BASE_URL` / `OPENAI_BASE_URL`), model (`LITELLM_MODEL` / `OPENAI_MODEL`), timeout (`LITELLM_TIMEOUT` or `LITELLM_TIMEOUT_SECONDS`, capped at 120), max sections (`LITELLM_MAX_SECTIONS`, capped at 2), and max tokens (`LITELLM_MAX_TOKENS` or `LITELLM_MAX_OUTPUT_TOKENS`, capped at 2048). The adapter calls the OpenAI-compatible `/chat/completions` endpoint and parses the same multiline Obsidian SR cards that the formatter writes.
 
 The implementation uses a thin injectable HTTP adapter inside the MAF workflow rather than a provider-specific `ChatClientAgent`. That keeps LiteLLM/local smoke testing provider-neutral and avoids hardcoded endpoints, models, or keys while preserving the workflow shape.

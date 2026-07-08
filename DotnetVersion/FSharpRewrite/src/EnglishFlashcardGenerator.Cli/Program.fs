@@ -55,13 +55,20 @@ module Program =
             | "--notes-out" :: value :: tail -> loop { options with NotesOut = Some value } tail
             | "--apply" :: tail -> loop { options with Apply = true } tail
             | "--card-mode" :: value :: tail -> loop { options with CardMode = Some value } tail
-            | "--generator-mode" :: value :: tail -> loop { options with GeneratorMode = Some value } tail
-            | "--llm-base-url" :: value :: tail -> loop { options with BaseUrl = Some value } tail
-            | "--llm-api-key" :: value :: tail -> loop { options with ApiKey = Some value } tail
-            | "--llm-model" :: value :: tail -> loop { options with Model = Some value } tail
-            | "--timeout-seconds" :: value :: tail -> loop { options with TimeoutSeconds = Some(parseInt "timeout-seconds" value) } tail
+            | "--generator-mode" :: value :: tail
+            | "--llm-mode" :: value :: tail
+            | "--mode" :: value :: tail -> loop { options with GeneratorMode = Some value } tail
+            | "--llm-base-url" :: value :: tail
+            | "--base-url" :: value :: tail -> loop { options with BaseUrl = Some value } tail
+            | "--llm-api-key" :: value :: tail
+            | "--api-key" :: value :: tail -> loop { options with ApiKey = Some value } tail
+            | "--llm-model" :: value :: tail
+            | "--model" :: value :: tail -> loop { options with Model = Some value } tail
+            | "--timeout-seconds" :: value :: tail
+            | "--timeout" :: value :: tail -> loop { options with TimeoutSeconds = Some(parseInt "timeout-seconds" value) } tail
             | "--max-sections" :: value :: tail -> loop { options with MaxSections = Some(parseInt "max-sections" value) } tail
-            | "--max-output-tokens" :: value :: tail -> loop { options with MaxOutputTokens = Some(parseInt "max-output-tokens" value) } tail
+            | "--max-output-tokens" :: value :: tail
+            | "--max-tokens" :: value :: tail -> loop { options with MaxOutputTokens = Some(parseInt "max-output-tokens" value) } tail
             | "--temperature" :: value :: tail -> loop { options with Temperature = Some(parseFloat "temperature" value) } tail
             | unknown :: _ -> invalidArg "args" $"Unknown or incomplete argument: {unknown}"
         loop empty (args |> Array.toList)
@@ -71,23 +78,53 @@ module Program =
         | Some v when not (String.IsNullOrWhiteSpace v) -> v
         | _ -> invalidArg name $"Missing required argument --{name}"
 
-    let private optionOrEnv option envName =
+    let private tryGetEnv envName =
+        let value = Environment.GetEnvironmentVariable envName
+        if String.IsNullOrWhiteSpace value then None else Some value
+
+    let private optionOrEnv option envNames =
         match option with
         | Some value when not (String.IsNullOrWhiteSpace value) -> Some value
-        | _ ->
-            let value = Environment.GetEnvironmentVariable envName
-            if String.IsNullOrWhiteSpace value then None else Some value
+        | _ -> envNames |> List.tryPick tryGetEnv
+
+    let private intOptionOrEnv option argumentName envNames =
+        match option with
+        | Some value -> value
+        | None ->
+            envNames
+            |> List.tryPick tryGetEnv
+            |> Option.map (parseInt argumentName)
+            |> Option.defaultValue 1
+
+    let private outputTokensOptionOrEnv option =
+        match option with
+        | Some value -> value
+        | None ->
+            [ "LITELLM_MAX_TOKENS"; "LITELLM_MAX_OUTPUT_TOKENS"; "OPENAI_MAX_TOKENS" ]
+            |> List.tryPick tryGetEnv
+            |> Option.map (parseInt "max-output-tokens")
+            |> Option.defaultValue 2048
+
+    let private optionalIntOptionOrEnv option argumentName envNames =
+        match option with
+        | Some value -> Some value
+        | None -> envNames |> List.tryPick tryGetEnv |> Option.map (parseInt argumentName)
+
+    let private optionalFloatOptionOrEnv option argumentName envNames =
+        match option with
+        | Some value -> Some value
+        | None -> envNames |> List.tryPick tryGetEnv |> Option.map (parseFloat argumentName)
 
     let private buildGeneration options =
         let cardDirection =
-            options.CardMode
+            optionOrEnv options.CardMode [ "FLASHCARD_CARD_MODE"; "CARD_MODE" ]
             |> Option.map CardDirection.parse
             |> Option.defaultValue CardDirection.defaultValue
         let mode =
-            options.GeneratorMode
+            optionOrEnv options.GeneratorMode [ "LITELLM_MODE"; "GENERATOR_MODE"; "LLM_MODE" ]
             |> Option.map GeneratorMode.parse
             |> Option.defaultValue Fake
-        let maxSections = options.MaxSections |> Option.defaultValue 1
+        let maxSections = intOptionOrEnv options.MaxSections "max-sections" [ "LITELLM_MAX_SECTIONS"; "GENERATOR_MAX_SECTIONS"; "MAX_SECTIONS" ]
         if maxSections < 1 || maxSections > 2 then
             invalidArg "max-sections" "Max sections must be 1 or 2."
 
@@ -98,15 +135,22 @@ module Program =
               MaxSections = maxSections
               Llm = None }
         | OpenAICompatible ->
-            let baseUrl = require "llm-base-url" (optionOrEnv options.BaseUrl "LITELLM_BASE_URL")
-            let apiKey = require "llm-api-key" (optionOrEnv options.ApiKey "LITELLM_API_KEY")
-            let model = require "llm-model" (optionOrEnv options.Model "LITELLM_MODEL")
-            let timeoutSeconds = options.TimeoutSeconds |> Option.defaultValue 120
+            let baseUrl = require "llm-base-url" (optionOrEnv options.BaseUrl [ "LITELLM_BASE_URL"; "OPENAI_BASE_URL" ])
+            let apiKey = require "llm-api-key" (optionOrEnv options.ApiKey [ "LITELLM_API_KEY"; "OPENAI_API_KEY" ])
+            let model = require "llm-model" (optionOrEnv options.Model [ "LITELLM_MODEL"; "OPENAI_MODEL" ])
+            let timeoutSeconds =
+                optionalIntOptionOrEnv options.TimeoutSeconds "timeout-seconds" [ "LITELLM_TIMEOUT"; "LITELLM_TIMEOUT_SECONDS"; "OPENAI_TIMEOUT"; "OPENAI_TIMEOUT_SECONDS" ]
+                |> Option.defaultValue 120
             if timeoutSeconds < 1 || timeoutSeconds > 120 then
                 invalidArg "timeout-seconds" "Timeout must be between 1 and 120 seconds."
-            let maxOutputTokens = options.MaxOutputTokens |> Option.defaultValue 2048
+            let maxOutputTokens = outputTokensOptionOrEnv options.MaxOutputTokens
             if maxOutputTokens < 1 || maxOutputTokens > 2048 then
                 invalidArg "max-output-tokens" "Max output tokens must be between 1 and 2048."
+            let temperature =
+                optionalFloatOptionOrEnv options.Temperature "temperature" [ "LITELLM_TEMPERATURE"; "OPENAI_TEMPERATURE" ]
+                |> Option.defaultValue 0.0
+            if temperature < 0.0 || temperature > 1.0 then
+                invalidArg "temperature" "Temperature must be between 0 and 1 for bounded smoke runs."
             { Mode = OpenAICompatible
               CardDirection = cardDirection
               MaxSections = maxSections
@@ -117,7 +161,7 @@ module Program =
                       Model = model
                       TimeoutSeconds = timeoutSeconds
                       MaxOutputTokens = maxOutputTokens
-                      Temperature = options.Temperature |> Option.defaultValue 0.0 } }
+                      Temperature = temperature } }
 
     [<EntryPoint>]
     let main args =
