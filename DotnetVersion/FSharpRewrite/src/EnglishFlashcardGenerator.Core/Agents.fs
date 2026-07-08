@@ -13,7 +13,7 @@ open System.Threading.Tasks
 module FakeTeacherAgent =
     let private cardPattern = Regex(@"\*\*(?<front>[^*]+)\*\*\s*-\s*(?<back>[^\r\n]+)(?:\r?\n\*(?<example>[^*]+)\*)?", RegexOptions.Compiled)
 
-    let generate (request: GenerationRequest) =
+    let generate direction (request: GenerationRequest) =
         let cards =
             cardPattern.Matches(request.Section.RawText)
             |> Seq.cast<Match>
@@ -22,7 +22,8 @@ module FakeTeacherAgent =
                   Back = m.Groups.["back"].Value.Trim()
                   Example =
                     let value = m.Groups.["example"].Value.Trim()
-                    if String.IsNullOrWhiteSpace value then None else Some value })
+                    if String.IsNullOrWhiteSpace value then None else Some value
+                  Direction = Some direction })
             |> Seq.toList
         { Request = request; Cards = cards }
 
@@ -42,11 +43,11 @@ Do not use Markdown tables, JSON, scheduling metadata, YAML sr-* fields, <!--SR:
 If you include an example, put it on the next non-empty back line exactly as: *Example sentence: ...*
 Do not put blank lines inside a single card. Separate cards with one blank line."""
 
-    let private userPrompt direction (request: GenerationRequest) =
-        let separator = CardDirection.separator direction
+    let private userPrompt defaultDirection (request: GenerationRequest) =
+        let separator = CardDirection.separator defaultDirection
         $"""Generate concise English learning flashcards for this note section.
-Use `{separator}` as the separator line for every card.
-`?` means one-way card. `??` means bidirectional card with a reversed sibling card.
+Choose the separator per card: `?` for one-way facts, `??` when the card is useful in both directions and should create a reversed sibling card.
+Use `{separator}` as the fallback separator only when the direction is not clear.
 Return at most 5 cards.
 
 Section heading:
@@ -116,7 +117,7 @@ Section markdown:
 module TeacherAgent =
     let generateAsync (options: GenerationOptions) (request: GenerationRequest) (ct: CancellationToken) = task {
         match options.Mode, options.Llm with
-        | Fake, _ -> return FakeTeacherAgent.generate request
+        | Fake, _ -> return FakeTeacherAgent.generate options.CardDirection request
         | OpenAICompatible, Some llm -> return! OpenAICompatibleTeacherAgent.generate llm options.CardDirection request ct
         | OpenAICompatible, None -> return invalidOp "OpenAI-compatible generator mode requires LLM options."
     }
@@ -144,6 +145,7 @@ module CardNormalizer =
                 |> List.map (fun card ->
                     { Front = CardContentSanitizer.clean card.Front
                       Back = CardContentSanitizer.clean card.Back
-                      Example = card.Example |> Option.map CardContentSanitizer.clean |> Option.filter (String.IsNullOrWhiteSpace >> not) })
+                      Example = card.Example |> Option.map CardContentSanitizer.clean |> Option.filter (String.IsNullOrWhiteSpace >> not)
+                      Direction = card.Direction })
                 |> List.filter (fun card -> not (String.IsNullOrWhiteSpace card.Front) && not (String.IsNullOrWhiteSpace card.Back))
                 |> List.distinctBy (fun c -> c.Front.Trim().ToLowerInvariant()) }

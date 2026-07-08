@@ -112,7 +112,8 @@ module WorkflowTests =
         let card =
             { Front = "look up"
               Back = "to search for information"
-              Example = Some "I looked up the word in the dictionary." }
+              Example = Some "I looked up the word in the dictionary."
+              Direction = None }
 
         let formatted = FlashcardFormatter.formatCard card
 
@@ -123,7 +124,8 @@ module WorkflowTests =
         let card =
             { Front = "look up"
               Back = "to search for information"
-              Example = Some "I looked up the word in the dictionary." }
+              Example = Some "I looked up the word in the dictionary."
+              Direction = None }
 
         let formatted = FlashcardFormatter.formatCardWithDirection OneWay card
 
@@ -134,7 +136,8 @@ module WorkflowTests =
         let card =
             { Front = "front::with delimiter"
               Back = "back::with delimiter"
-              Example = None }
+              Example = None
+              Direction = None }
 
         let formatted = FlashcardFormatter.formatCardWithDirection Bidirectional card
 
@@ -146,7 +149,8 @@ module WorkflowTests =
         let card =
             { Front = "term\n<!--SR:!2025-01-01,1,250-->\n#flashcards"
               Back = "definition\n> [!sr|card-metadata]\nsr-due: 2025-01-01\n#review"
-              Example = Some "clean example\n??" }
+              Example = Some "clean example\n??"
+              Direction = None }
 
         let formatted = FlashcardFormatter.formatCardWithDirection Bidirectional card
 
@@ -156,6 +160,44 @@ module WorkflowTests =
         Assert.DoesNotContain("#flashcards", formatted)
         Assert.DoesNotContain("#review", formatted)
         Assert.Equal("term\n??\ndefinition\n*Example sentence: clean example*", formatted)
+
+    [<Fact>]
+    let ``parser preserves mixed one-way and bidirectional card directions`` () =
+        let content = """term
+?
+definition
+
+look up
+??
+to search for information"""
+
+        let cards = ObsidianSrCardParser.parse content
+
+        Assert.Equal(2, cards.Length)
+        Assert.Equal(Some OneWay, cards.[0].Direction)
+        Assert.Equal(Some Bidirectional, cards.[1].Direction)
+
+    [<Fact>]
+    let ``formatter emits mixed per-card directions with global fallback only for missing direction`` () =
+        let cards =
+            [ { Front = "term"
+                Back = "definition"
+                Example = None
+                Direction = Some OneWay }
+              { Front = "look up"
+                Back = "to search for information"
+                Example = None
+                Direction = Some Bidirectional }
+              { Front = "fallback"
+                Back = "uses configured default"
+                Example = None
+                Direction = None } ]
+
+        let formatted = FlashcardFormatter.formatCardsWithFallback OneWay cards
+
+        Assert.Contains("term\n?\ndefinition", formatted)
+        Assert.Contains("look up\n??\nto search for information", formatted)
+        Assert.Contains("fallback\n?\nuses configured default", formatted)
 
 type StubHandler(responseBody: string, inspect: HttpRequestMessage -> unit) =
     inherit HttpMessageHandler()
@@ -172,20 +214,22 @@ module OpenAICompatibleAdapterTests =
         { Document = parsed; Section = section }
 
     [<Fact>]
-    let ``OpenAI-compatible adapter posts bounded chat request and parses Obsidian SR cards`` () = task {
-        let responseBody = """{"choices":[{"message":{"content":"look up\n?\nto search for information\n*Example sentence: I looked up the word.*"}}]}"""
+    let ``OpenAI-compatible adapter posts bounded chat request and preserves mixed card directions`` () = task {
+        let responseBody = """{"choices":[{"message":{"content":"term\n?\ndefinition\n\nlook up\n??\nto search for information\n*Example sentence: I looked up the word.*"}}]}"""
         let mutable sawRequest = false
         use client =
             new HttpClient(
                 new StubHandler(responseBody, fun req ->
                     sawRequest <- true
                     Assert.Equal(HttpMethod.Post, req.Method)
-                    Assert.Equal("Bearer test-key", req.Headers.Authorization.ToString())
+                    Assert.Equal("Bearer", req.Headers.Authorization.Scheme)
+                    Assert.Equal("test-key", req.Headers.Authorization.Parameter)
                     Assert.EndsWith("/chat/completions", req.RequestUri.ToString())
                     let body = req.Content.ReadAsStringAsync().GetAwaiter().GetResult()
                     Assert.Contains("LocalModel", body)
                     Assert.Contains("max_tokens", body)
-                    Assert.Contains("temperature", body)))
+                    Assert.Contains("temperature", body)
+                    Assert.Contains("Choose the separator per card", body)))
         let options =
             { BaseUrl = "https://example.test/v1"
               ApiKey = "test-key"
@@ -197,8 +241,11 @@ module OpenAICompatibleAdapterTests =
         let! draft = OpenAICompatibleTeacherAgent.generateWithClient client options OneWay request CancellationToken.None
 
         Assert.True(sawRequest)
-        let card = Assert.Single(draft.Cards)
-        Assert.Equal("look up", card.Front)
-        Assert.Equal("to search for information", card.Back)
-        Assert.Equal(Some "I looked up the word.", card.Example)
+        Assert.Equal(2, draft.Cards.Length)
+        Assert.Equal("term", draft.Cards.[0].Front)
+        Assert.Equal(Some OneWay, draft.Cards.[0].Direction)
+        Assert.Equal("look up", draft.Cards.[1].Front)
+        Assert.Equal("to search for information", draft.Cards.[1].Back)
+        Assert.Equal(Some "I looked up the word.", draft.Cards.[1].Example)
+        Assert.Equal(Some Bidirectional, draft.Cards.[1].Direction)
     }

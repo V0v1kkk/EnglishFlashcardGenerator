@@ -49,33 +49,6 @@ type ParsedDocument =
       Sections: MarkdownSection list
       OriginalText: string }
 
-type FlashCard =
-    { Front: string
-      Back: string
-      Example: string option }
-
-type GenerationRequest =
-    { Document: ParsedDocument
-      Section: MarkdownSection }
-
-type TeacherDraft =
-    { Request: GenerationRequest
-      Cards: FlashCard list }
-
-type ReviewResult =
-    { Draft: TeacherDraft
-      Approved: bool
-      Feedback: string list
-      Iteration: int }
-
-type NormalizedCards =
-    { Section: MarkdownSection
-      Cards: FlashCard list }
-
-type WriteMode =
-    | DryRun
-    | Apply
-
 type CardDirection =
     | OneWay
     | Bidirectional
@@ -98,6 +71,34 @@ module CardDirection =
         match tryParse value with
         | Some direction -> direction
         | None -> invalidArg "card-mode" "Card mode must be one-way or bidirectional."
+
+type FlashCard =
+    { Front: string
+      Back: string
+      Example: string option
+      Direction: CardDirection option }
+
+type GenerationRequest =
+    { Document: ParsedDocument
+      Section: MarkdownSection }
+
+type TeacherDraft =
+    { Request: GenerationRequest
+      Cards: FlashCard list }
+
+type ReviewResult =
+    { Draft: TeacherDraft
+      Approved: bool
+      Feedback: string list
+      Iteration: int }
+
+type NormalizedCards =
+    { Section: MarkdownSection
+      Cards: FlashCard list }
+
+type WriteMode =
+    | DryRun
+    | Apply
 
 type GeneratorMode =
     | Fake

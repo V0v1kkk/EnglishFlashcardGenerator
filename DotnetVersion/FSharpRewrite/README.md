@@ -4,23 +4,23 @@ This vertical slice uses Microsoft Agent Framework Workflows for the parser -> t
 
 ## Obsidian Spaced Repetition output
 
-The formatter emits Obsidian Spaced Repetition multiline cards. The default remains bidirectional for compatibility with the existing output:
+The formatter emits Obsidian Spaced Repetition multiline cards. In the plugin, `?` creates a one-way multiline basic card. `??` creates a bidirectional card and therefore a reversed sibling card.
 
-```text
-front
-??
-back
-```
-
-Use `--card-mode one-way` to emit one-way cards instead:
+The model can choose the direction per card, so one output file may contain both styles:
 
 ```text
 front
 ?
 back
+
+front
+??
+back
 ```
 
-In the Obsidian Spaced Repetition plugin, `?` creates a one-way multiline basic card. `??` creates a bidirectional card and therefore a reversed sibling card. The generator keeps examples on a non-empty back line:
+The default fallback remains bidirectional `??` for compatibility with the existing output. Use `--card-mode one-way` when generated or fake cards do not carry their own direction and should fall back to one-way output.
+
+The generator keeps examples on a non-empty back line:
 
 ```text
 look up
@@ -29,7 +29,7 @@ to search for information
 *Example sentence: I looked up the word in the dictionary.*
 ```
 
-The formatter strips accidental scheduling metadata from generated card fields, including `<!--SR:...-->`, `[!sr|card-metadata]`, YAML `sr-*` fields, standalone `?` / `??` lines inside card text, and accidental standalone `#flashcards` / `#review` tags. It also avoids the legacy `::` delimiter.
+The parser preserves per-card `?` / `??` direction, and the formatter writes each card with its own direction. The formatter strips accidental scheduling metadata from generated card fields, including `<!--SR:...-->`, `[!sr|card-metadata]`, YAML `sr-*` fields, standalone `?` / `??` lines inside card text, and accidental standalone `#flashcards` / `#review` tags. It also avoids the legacy `::` delimiter.
 
 ## Generator modes
 

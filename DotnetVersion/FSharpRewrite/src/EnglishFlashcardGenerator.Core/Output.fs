@@ -30,9 +30,10 @@ module CardContentSanitizer =
 
 [<RequireQualifiedAccess>]
 module FlashcardFormatter =
-    let formatCardWithDirection direction (card: FlashCard) =
+    let formatCardWithFallback fallbackDirection (card: FlashCard) =
         let front = CardContentSanitizer.clean card.Front
         let back = CardContentSanitizer.clean card.Back
+        let direction = card.Direction |> Option.defaultValue fallbackDirection
         let separator = CardDirection.separator direction
         let lines =
             match card.Example |> Option.map CardContentSanitizer.clean with
@@ -49,14 +50,19 @@ module FlashcardFormatter =
         |> List.filter (String.IsNullOrWhiteSpace >> not)
         |> String.concat "\n"
 
-    let formatCard card = formatCardWithDirection CardDirection.defaultValue card
+    let formatCard card = formatCardWithFallback CardDirection.defaultValue card
 
-    let formatCardsWithDirection direction cards =
+    let formatCardsWithFallback fallbackDirection cards =
         cards
-        |> List.map (formatCardWithDirection direction)
+        |> List.map (formatCardWithFallback fallbackDirection)
         |> String.concat "\n\n"
 
-    let formatCards cards = formatCardsWithDirection CardDirection.defaultValue cards
+    let formatCardWithDirection direction card =
+        formatCardWithFallback direction { card with Direction = Some direction }
+
+    let formatCardsWithDirection direction cards = formatCardsWithFallback direction cards
+
+    let formatCards cards = formatCardsWithFallback CardDirection.defaultValue cards
 
 [<RequireQualifiedAccess>]
 module ObsidianSrCardParser =
@@ -72,6 +78,7 @@ module ObsidianSrCardParser =
         | None -> None
         | Some index when index = 0 || index = lines.Length - 1 -> None
         | Some index ->
+            let direction = CardDirection.parse lines.[index]
             let front = lines |> List.take index |> String.concat " " |> CardContentSanitizer.clean
             let backLines = lines |> List.skip (index + 1)
             let examplePrefix = "*Example sentence:"
@@ -83,7 +90,7 @@ module ObsidianSrCardParser =
                 | _ -> None, backLines
             let back = definitionLines |> String.concat " " |> CardContentSanitizer.clean
             if String.IsNullOrWhiteSpace front || String.IsNullOrWhiteSpace back then None
-            else Some { Front = front; Back = back; Example = example }
+            else Some { Front = front; Back = back; Example = example; Direction = Some direction }
 
     let parse (content: string) =
         content.Replace("\r\n", "\n").Replace("\r", "\n").Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
@@ -112,7 +119,7 @@ module MarkdownOutputWriter =
 
     let buildPlan (output: OutputOptions) (normalized: NormalizedCards) =
         let section = normalized.Section
-        let cardBody = FlashcardFormatter.formatCardsWithDirection output.CardDirection normalized.Cards
+        let cardBody = FlashcardFormatter.formatCardsWithFallback output.CardDirection normalized.Cards
         let noteBody = stripHeadingLine section.RawText
         let cardsContent =
             $"---\ntags:\n  - english\n  - flashcards\nsource: {section.HeadingText}\n---\n\n# Flashcards for {section.HeadingText}\n\n{cardBody}\n"
