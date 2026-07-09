@@ -42,13 +42,18 @@ front
 back
 Do not use Markdown tables, JSON, scheduling metadata, YAML sr-* fields, <!--SR:...-->, [!sr|card-metadata], :: delimiters, #flashcards, or #review tags inside card text.
 If you include an example, put it on the next non-empty back line exactly as: *Example sentence: ...*
-Do not put blank lines inside a single card. Separate cards with one blank line."""
+Do not put blank lines inside a single card. Separate cards with one blank line.
+Every front must be a self-contained cue that tells the learner what answer is expected.
+Do not create ambiguous bare-front cards like `tear` -> `torn`; rewrite them as a clear one-way cue, for example `three forms of the verb "tear"` -> `tear - tore - torn`."""
 
     let private userPrompt defaultDirection (request: GenerationRequest) =
         let separator = CardDirection.separator defaultDirection
         $"""Generate concise English learning flashcards for this note section.
 Choose the separator per card: `?` for one-way facts, `??` when the card is useful in both directions and should create a reversed sibling card.
 Use `{separator}` as the fallback separator only when the direction is not clear.
+Use `??` only for clean term <-> definition or phrase <-> meaning pairs where both sides work as prompts.
+Use `?` for grammar notes, usage notes, examples, verb forms, and any card whose front has to ask a specific question.
+Make each front answerable without looking at the source note. If a bare word or phrase would be ambiguous, add the missing cue in the front.
 Return at most 5 cards.
 
 Section heading:
@@ -89,7 +94,8 @@ Section markdown:
         payload["model"] <- JsonValue.Create(options.Model)
         payload["messages"] <- JsonArray(message "system" systemPrompt, message "user" (userPrompt direction request))
         payload["temperature"] <- JsonValue.Create(options.Temperature)
-        payload["max_tokens"] <- JsonValue.Create(options.MaxOutputTokens)
+        options.MaxOutputTokens
+        |> Option.iter (fun maxTokens -> payload["max_tokens"] <- JsonValue.Create(maxTokens))
         if options.DisableThinking then
             let chatTemplate = JsonObject()
             chatTemplate["enable_thinking"] <- JsonValue.Create(false)

@@ -108,12 +108,11 @@ module Program =
 
     let private outputTokensOptionOrEnv option =
         match option with
-        | Some value -> value
+        | Some value -> Some value
         | None ->
             [ "LITELLM_MAX_TOKENS"; "LITELLM_MAX_OUTPUT_TOKENS"; "OPENAI_MAX_TOKENS" ]
             |> List.tryPick tryGetEnv
             |> Option.map (parseInt "max-output-tokens")
-            |> Option.defaultValue 2048
 
     let private optionalIntOptionOrEnv option argumentName envNames =
         match option with
@@ -162,8 +161,10 @@ module Program =
             if timeoutSeconds < 1 || timeoutSeconds > 120 then
                 invalidArg "timeout-seconds" "Timeout must be between 1 and 120 seconds."
             let maxOutputTokens = outputTokensOptionOrEnv options.MaxOutputTokens
-            if maxOutputTokens < 1 || maxOutputTokens > 2048 then
-                invalidArg "max-output-tokens" "Max output tokens must be between 1 and 2048."
+            match maxOutputTokens with
+            | Some value when value < 1 || value > 32768 ->
+                invalidArg "max-output-tokens" "Max output tokens must be between 1 and 32768."
+            | _ -> ()
             let temperature =
                 optionalFloatOptionOrEnv options.Temperature "temperature" [ "LITELLM_TEMPERATURE"; "OPENAI_TEMPERATURE" ]
                 |> Option.defaultValue 0.0

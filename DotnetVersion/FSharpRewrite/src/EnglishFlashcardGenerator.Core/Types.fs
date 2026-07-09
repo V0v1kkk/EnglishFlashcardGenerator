@@ -122,7 +122,7 @@ type LlmOptions =
       ApiKey: string
       Model: string
       TimeoutSeconds: int
-      MaxOutputTokens: int
+      MaxOutputTokens: int option
       Temperature: float
       DisableThinking: bool }
 

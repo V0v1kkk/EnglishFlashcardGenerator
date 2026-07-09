@@ -42,7 +42,7 @@ dotnet run --project src/EnglishFlashcardGenerator.Cli \
   --notes-out ./out/notes
 ```
 
-A bounded OpenAI-compatible adapter is available for local or LiteLLM smoke tests:
+An OpenAI-compatible adapter is available for local or LiteLLM smoke tests:
 
 ```bash
 dotnet run --project src/EnglishFlashcardGenerator.Cli \
@@ -54,10 +54,9 @@ dotnet run --project src/EnglishFlashcardGenerator.Cli \
   --llm-model LocalModel \
   --timeout-seconds 120 \
   --max-sections 1 \
-  --max-output-tokens 2048 \
   --llm-disable-thinking
 ```
 
-The API key is read from `--llm-api-key` or `LITELLM_API_KEY`. Do not commit keys or put them in templates. CLI values take precedence over environment values. The smoke adapter also accepts environment configuration for mode (`LITELLM_MODE` / `GENERATOR_MODE` / `LLM_MODE`), base URL (`LITELLM_BASE_URL` / `OPENAI_BASE_URL`), model (`LITELLM_MODEL` / `OPENAI_MODEL`), timeout (`LITELLM_TIMEOUT` or `LITELLM_TIMEOUT_SECONDS`, capped at 120), max sections (`LITELLM_MAX_SECTIONS`, capped at 2), max tokens (`LITELLM_MAX_TOKENS` or `LITELLM_MAX_OUTPUT_TOKENS`, capped at 2048), and thinking suppression (`LITELLM_DISABLE_THINKING` / `OPENAI_DISABLE_THINKING`). The disable-thinking option sends `chat_template_kwargs.enable_thinking=false`, which is useful for local reasoning models that otherwise spend the bounded token budget on hidden reasoning instead of final card content. The adapter calls the OpenAI-compatible `/chat/completions` endpoint and parses the same multiline Obsidian SR cards that the formatter writes.
+The API key is read from `--llm-api-key` or `LITELLM_API_KEY`. Do not commit keys or put them in templates. CLI values take precedence over environment values. The smoke adapter also accepts environment configuration for mode (`LITELLM_MODE` / `GENERATOR_MODE` / `LLM_MODE`), base URL (`LITELLM_BASE_URL` / `OPENAI_BASE_URL`), model (`LITELLM_MODEL` / `OPENAI_MODEL`), timeout (`LITELLM_TIMEOUT` or `LITELLM_TIMEOUT_SECONDS`, capped at 120), max sections (`LITELLM_MAX_SECTIONS`, capped at 2), optional max tokens (`LITELLM_MAX_TOKENS` or `LITELLM_MAX_OUTPUT_TOKENS`, capped at 32768 when set), and thinking suppression (`LITELLM_DISABLE_THINKING` / `OPENAI_DISABLE_THINKING`). By default the adapter does not send `max_tokens`; pass `--max-output-tokens` only for intentionally bounded smoke runs. The disable-thinking option sends `chat_template_kwargs.enable_thinking=false`, which is useful for local reasoning models that otherwise spend the output budget on hidden reasoning instead of final card content. The adapter calls the OpenAI-compatible `/chat/completions` endpoint and parses the same multiline Obsidian SR cards that the formatter writes.
 
 The implementation uses a thin injectable HTTP adapter inside the MAF workflow rather than a provider-specific `ChatClientAgent`. That keeps LiteLLM/local smoke testing provider-neutral and avoids hardcoded endpoints, models, or keys while preserving the workflow shape.

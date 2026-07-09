@@ -260,7 +260,7 @@ module OpenAICompatibleAdapterTests =
               ApiKey = "test-key"
               Model = "LocalModel"
               TimeoutSeconds = 120
-              MaxOutputTokens = 128
+              MaxOutputTokens = Some 128
               Temperature = 0.0
               DisableThinking = false }
 
@@ -289,7 +289,7 @@ module OpenAICompatibleAdapterTests =
               ApiKey = "test-key"
               Model = "LocalModel"
               TimeoutSeconds = 120
-              MaxOutputTokens = 128
+              MaxOutputTokens = None
               Temperature = 0.0
               DisableThinking = true }
 
@@ -299,4 +299,5 @@ module OpenAICompatibleAdapterTests =
         Assert.Contains("chat_template_kwargs", requestBody)
         Assert.Contains("enable_thinking", requestBody)
         Assert.Contains("false", requestBody)
+        Assert.DoesNotContain("max_tokens", requestBody)
     }
