@@ -261,7 +261,8 @@ module OpenAICompatibleAdapterTests =
               Model = "LocalModel"
               TimeoutSeconds = 120
               MaxOutputTokens = 128
-              Temperature = 0.0 }
+              Temperature = 0.0
+              DisableThinking = false }
 
         let! draft = OpenAICompatibleTeacherAgent.generateWithClient client options OneWay request CancellationToken.None
 
@@ -273,4 +274,29 @@ module OpenAICompatibleAdapterTests =
         Assert.Equal("to search for information", draft.Cards.[1].Back)
         Assert.Equal(Some "I looked up the word.", draft.Cards.[1].Example)
         Assert.Equal(Some Bidirectional, draft.Cards.[1].Direction)
+    }
+
+    [<Fact>]
+    let ``OpenAI-compatible adapter can disable chat-template thinking for local models`` () = task {
+        let responseBody = """{"choices":[{"message":{"content":"term\n?\ndefinition"}}]}"""
+        let mutable requestBody = ""
+        use client =
+            new HttpClient(
+                new StubHandler(responseBody, fun req ->
+                    requestBody <- req.Content.ReadAsStringAsync().GetAwaiter().GetResult()))
+        let options =
+            { BaseUrl = "https://example.test/v1"
+              ApiKey = "test-key"
+              Model = "LocalModel"
+              TimeoutSeconds = 120
+              MaxOutputTokens = 128
+              Temperature = 0.0
+              DisableThinking = true }
+
+        let! draft = OpenAICompatibleTeacherAgent.generateWithClient client options OneWay request CancellationToken.None
+
+        Assert.Single(draft.Cards) |> ignore
+        Assert.Contains("chat_template_kwargs", requestBody)
+        Assert.Contains("enable_thinking", requestBody)
+        Assert.Contains("false", requestBody)
     }

@@ -19,7 +19,8 @@ module Program =
           TimeoutSeconds: int option
           MaxSections: int option
           MaxOutputTokens: int option
-          Temperature: float option }
+          Temperature: float option
+          DisableThinking: bool }
 
     let private empty =
         { Source = None
@@ -34,7 +35,8 @@ module Program =
           TimeoutSeconds = None
           MaxSections = None
           MaxOutputTokens = None
-          Temperature = None }
+          Temperature = None
+          DisableThinking = false }
 
     let private parseInt name (value: string) =
         match Int32.TryParse value with
@@ -45,6 +47,12 @@ module Program =
         match Double.TryParse(value, Globalization.NumberStyles.Float, Globalization.CultureInfo.InvariantCulture) with
         | true, parsed -> parsed
         | false, _ -> invalidArg name $"{name} must be a number."
+
+    let private parseBool name (value: string) =
+        match value.Trim().ToLowerInvariant() with
+        | "1" | "true" | "yes" | "on" -> true
+        | "0" | "false" | "no" | "off" -> false
+        | _ -> invalidArg name $"{name} must be true or false."
 
     let private parseArgs args =
         let rec loop options remaining =
@@ -70,6 +78,8 @@ module Program =
             | "--max-output-tokens" :: value :: tail
             | "--max-tokens" :: value :: tail -> loop { options with MaxOutputTokens = Some(parseInt "max-output-tokens" value) } tail
             | "--temperature" :: value :: tail -> loop { options with Temperature = Some(parseFloat "temperature" value) } tail
+            | "--llm-disable-thinking" :: tail
+            | "--disable-thinking" :: tail -> loop { options with DisableThinking = true } tail
             | unknown :: _ -> invalidArg "args" $"Unknown or incomplete argument: {unknown}"
         loop empty (args |> Array.toList)
 
@@ -115,6 +125,14 @@ module Program =
         | Some value -> Some value
         | None -> envNames |> List.tryPick tryGetEnv |> Option.map (parseFloat argumentName)
 
+    let private boolFlagOrEnv flag argumentName envNames =
+        if flag then true
+        else
+            envNames
+            |> List.tryPick tryGetEnv
+            |> Option.map (parseBool argumentName)
+            |> Option.defaultValue false
+
     let private buildGeneration options =
         let cardDirection =
             optionOrEnv options.CardMode [ "FLASHCARD_CARD_MODE"; "CARD_MODE" ]
@@ -151,6 +169,8 @@ module Program =
                 |> Option.defaultValue 0.0
             if temperature < 0.0 || temperature > 1.0 then
                 invalidArg "temperature" "Temperature must be between 0 and 1 for bounded smoke runs."
+            let disableThinking =
+                boolFlagOrEnv options.DisableThinking "llm-disable-thinking" [ "LITELLM_DISABLE_THINKING"; "OPENAI_DISABLE_THINKING" ]
             { Mode = OpenAICompatible
               CardDirection = cardDirection
               MaxSections = maxSections
@@ -161,7 +181,8 @@ module Program =
                       Model = model
                       TimeoutSeconds = timeoutSeconds
                       MaxOutputTokens = maxOutputTokens
-                      Temperature = temperature } }
+                      Temperature = temperature
+                      DisableThinking = disableThinking } }
 
     [<EntryPoint>]
     let main args =

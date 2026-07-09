@@ -5,6 +5,7 @@ open System.Net.Http
 open System.Net.Http.Headers
 open System.Text
 open System.Text.Json
+open System.Text.Json.Nodes
 open System.Text.RegularExpressions
 open System.Threading
 open System.Threading.Tasks
@@ -78,13 +79,22 @@ Section markdown:
                 | _ -> invalidOp "OpenAI-compatible response did not include message.content."
 
     let private buildRequestJson options direction request =
-        JsonSerializer.Serialize(
-            {| model = options.Model
-               messages =
-                [| {| role = "system"; content = systemPrompt |}
-                   {| role = "user"; content = userPrompt direction request |} |]
-               temperature = options.Temperature
-               max_tokens = options.MaxOutputTokens |})
+        let message (role: string) (content: string) =
+            let node = JsonObject()
+            node["role"] <- JsonValue.Create(role)
+            node["content"] <- JsonValue.Create(content)
+            node
+
+        let payload = JsonObject()
+        payload["model"] <- JsonValue.Create(options.Model)
+        payload["messages"] <- JsonArray(message "system" systemPrompt, message "user" (userPrompt direction request))
+        payload["temperature"] <- JsonValue.Create(options.Temperature)
+        payload["max_tokens"] <- JsonValue.Create(options.MaxOutputTokens)
+        if options.DisableThinking then
+            let chatTemplate = JsonObject()
+            chatTemplate["enable_thinking"] <- JsonValue.Create(false)
+            payload["chat_template_kwargs"] <- chatTemplate
+        payload.ToJsonString()
 
     let private endpoint (baseUrl: string) =
         let trimmed = baseUrl.TrimEnd('/')

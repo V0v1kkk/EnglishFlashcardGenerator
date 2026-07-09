@@ -123,7 +123,8 @@ type LlmOptions =
       Model: string
       TimeoutSeconds: int
       MaxOutputTokens: int
-      Temperature: float }
+      Temperature: float
+      DisableThinking: bool }
 
 type GenerationOptions =
     { Mode: GeneratorMode
