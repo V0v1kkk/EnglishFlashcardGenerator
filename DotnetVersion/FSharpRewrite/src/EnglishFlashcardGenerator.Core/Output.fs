@@ -13,7 +13,7 @@ module CardContentSanitizer =
         || trimmed = "??"
         || trimmed.StartsWith("<!--SR:", StringComparison.OrdinalIgnoreCase)
         || trimmed.Contains("> [!sr|card-metadata]", StringComparison.OrdinalIgnoreCase)
-        || Regex.IsMatch(trimmed, @"^sr-[A-Za-z0-9_-]+\s*:")
+        || Regex.IsMatch(trimmed, @"^sr-[A-Za-z0-9_-]+\s*:", RegexOptions.IgnoreCase)
         || trimmed.Equals("#flashcards", StringComparison.OrdinalIgnoreCase)
         || trimmed.Equals("#review", StringComparison.OrdinalIgnoreCase)
 

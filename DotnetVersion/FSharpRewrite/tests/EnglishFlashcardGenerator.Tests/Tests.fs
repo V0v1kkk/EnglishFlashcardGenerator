@@ -108,6 +108,15 @@ module WorkflowTests =
     }
 
     [<Fact>]
+    let ``workflow applies configured one-way Obsidian SR marker`` () = task {
+        let output = { tempOutput () with CardDirection = OneWay }
+        let! result = FlashcardWorkflow.runAsync (input output) CancellationToken.None
+
+        Assert.Contains("look up\n?\nto search for information", result.WritePlan.CardsContent)
+        Assert.DoesNotContain("look up\n??\nto search for information", result.WritePlan.CardsContent)
+    }
+
+    [<Fact>]
     let ``flashcard formatter keeps legacy bidirectional marker by default`` () =
         let card =
             { Front = "look up"
@@ -160,6 +169,22 @@ module WorkflowTests =
         Assert.DoesNotContain("#flashcards", formatted)
         Assert.DoesNotContain("#review", formatted)
         Assert.Equal("term\n??\ndefinition\n*Example sentence: clean example*", formatted)
+
+    [<Fact>]
+    let ``formatter removes blank lines standalone separators and case-insensitive SR fields inside cards`` () =
+        let card =
+            { Front = "\nterm\n\n?\n<!--sr:!2025-01-01,1,250-->\n"
+              Back = "definition\n\n??\nSR-DUE: 2025-01-01\nsr-ease: 250"
+              Example = Some "\nexample\n\nSR-INTERVAL: 4\n"
+              Direction = None }
+
+        let formatted = FlashcardFormatter.formatCardWithDirection Bidirectional card
+
+        Assert.Equal("term\n??\ndefinition\n*Example sentence: example*", formatted)
+        Assert.DoesNotContain("\n\n", formatted)
+        Assert.DoesNotContain("SR-DUE", formatted)
+        Assert.DoesNotContain("sr-ease", formatted)
+        Assert.DoesNotContain("SR-INTERVAL", formatted)
 
     [<Fact>]
     let ``parser preserves mixed one-way and bidirectional card directions`` () =
