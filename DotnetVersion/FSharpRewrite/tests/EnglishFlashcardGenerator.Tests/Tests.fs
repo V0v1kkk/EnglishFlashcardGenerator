@@ -268,12 +268,42 @@ module StructuredDtoTests =
                     Back = "torn"
                     Example = None
                     Direction = Some OneWay } ] }
-        let review = ReviewerOutputDto.toReview 1 draft { Approved = false; Feedback = [ "front is ambiguous" ] }
+        let review = ReviewerOutputDto.toReview 1 draft { Approved = false; Feedback = [ "front is ambiguous" ]; Findings = [] }
 
         let normalized = CardNormalizer.normalize review
 
         Assert.False(review.Approved)
         Assert.Empty(normalized.Cards)
+
+    [<Fact>]
+    let ``reviewer DTO conversion includes card-specific findings in feedback`` () =
+        let parsed = MarkdownDocumentParser.parse None TestData.sample
+        let section = parsed.Sections |> List.find (fun s -> s.HeadingText.Contains("28.03.2025"))
+        let request = { Document = parsed; Section = section }
+        let draft =
+            { Request = request
+              Cards =
+                [ { Front = "tear"
+                    Back = "torn"
+                    Example = None
+                    Direction = Some OneWay } ] }
+
+        let review =
+            ReviewerOutputDto.toReview
+                1
+                draft
+                { Approved = false
+                  Feedback = [ "front is not self-contained" ]
+                  Findings =
+                    [ { CardFront = "tear"
+                        Issue = "ambiguous verb-form prompt"
+                        Recommendation = "rewrite as three forms of the verb tear" } ] }
+
+        Assert.False(review.Approved)
+        Assert.Equal(2, review.Feedback.Length)
+        Assert.Contains("front is not self-contained", review.Feedback)
+        Assert.Contains("tear", review.Feedback.[1])
+        Assert.Contains("ambiguous verb-form prompt", review.Feedback.[1])
 
 type StubChatClient(responseJson: string, inspect: ChatOptions -> unit) =
     interface IChatClient with
@@ -357,7 +387,7 @@ module StructuredLlmAgentTests =
                     Back = "tear - tore - torn"
                     Example = None
                     Direction = Some OneWay } ] }
-        use client = new StubChatClient("""{"approved":true,"feedback":[]}""", fun options -> Assert.NotNull(options.ResponseFormat))
+        use client = new StubChatClient("""{"approved":true,"feedback":[],"findings":[]}""", fun options -> Assert.NotNull(options.ResponseFormat))
 
         let! review = StructuredLlmAgent.reviewWithChatClient client llmOptions draft CancellationToken.None
 
@@ -409,7 +439,7 @@ module WorkflowStructuredLlmTests =
     let ``workflow can run through structured teacher and reviewer DTO path without Obsidian output parser`` () = task {
         let output = output ()
         let teacherResponse = """{"cards":[{"front":"look up","back":"to search for information","example":"I looked up the word.","direction":"one-way"}]}"""
-        let reviewerResponse = """{"approved":true,"feedback":[]}"""
+        let reviewerResponse = """{"approved":true,"feedback":[],"findings":[]}"""
         let mutable structuredCalls = 0
         use client =
             new SequencedStubChatClient(

@@ -60,3 +60,11 @@ dotnet run --project src/EnglishFlashcardGenerator.Cli \
 The API key is read from `--llm-api-key` or `LITELLM_API_KEY`. Do not commit keys or put them in templates. CLI values take precedence over environment values. The provider path also accepts environment configuration for mode (`LITELLM_MODE` / `GENERATOR_MODE` / `LLM_MODE`), base URL (`LITELLM_BASE_URL` / `OPENAI_BASE_URL`), model (`LITELLM_MODEL` / `OPENAI_MODEL`), timeout (`LITELLM_TIMEOUT` or `LITELLM_TIMEOUT_SECONDS`, capped at 120), max sections (`LITELLM_MAX_SECTIONS`, capped at 2), optional max tokens (`LITELLM_MAX_TOKENS` or `LITELLM_MAX_OUTPUT_TOKENS`, capped at 32768 when set), and thinking suppression (`LITELLM_DISABLE_THINKING` / `OPENAI_DISABLE_THINKING`). By default the provider path does not set `MaxOutputTokens`; pass `--max-output-tokens` only for intentionally bounded smoke runs.
 
 LLM responses are requested as typed structured output (`TeacherOutputDto` / `ReviewerOutputDto`) through MAF `ChatClientAgent`; Obsidian SR markdown is produced only by the final formatter. `--llm-disable-thinking` is currently rejected for the framework provider path because the Microsoft abstractions used here do not expose LiteLLM's `chat_template_kwargs.enable_thinking=false` hook without dropping back to provider-specific raw HTTP JSON.
+
+## MAF abstractions and provider selection
+
+The core project depends on `Microsoft.Agents.AI`, `Microsoft.Agents.AI.Workflows`, `Microsoft.Extensions.AI.OpenAI`, and the Microsoft `OpenAI` SDK. The workflow package owns orchestration, while `ChatClientAgent` wraps an `IChatClient` for the teacher and reviewer steps.
+
+Provider-specific code is intentionally isolated in `StructuredLlmAgent.createOpenAICompatibleChatClient`. The rest of the pipeline accepts `IChatClient`, which keeps the typed DTO path testable with stubs and leaves room for future Azure OpenAI or other Microsoft.Extensions.AI providers without changing parser, reviewer, normalizer, or writer code.
+
+Teacher output is modeled as `TeacherOutputDto` containing `TeacherCardDto` records. Reviewer output is modeled as `ReviewerOutputDto` with simple summary feedback plus optional `ReviewerFindingDto` records for card-specific issues. These DTOs are the only LLM-facing schema; the application domain continues to use `FlashCard`, `TeacherDraft`, and `ReviewResult` internally.

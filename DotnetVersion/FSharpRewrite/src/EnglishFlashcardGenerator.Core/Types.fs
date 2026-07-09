@@ -82,21 +82,32 @@ type FlashCard =
       Example: string option
       Direction: CardDirection option }
 
+/// Structured DTO returned by the teacher LLM for one flashcard candidate.
 [<CLIMutable>]
-type StructuredFlashCardDto =
+type TeacherCardDto =
     { Front: string
       Back: string
       Example: string
       Direction: string }
 
+/// Top-level structured teacher LLM output. Obsidian SR markup is deliberately not part of this schema.
 [<CLIMutable>]
 type TeacherOutputDto =
-    { Cards: StructuredFlashCardDto list }
+    { Cards: TeacherCardDto list }
 
+/// Optional structured issue returned by the reviewer LLM for a specific card.
+[<CLIMutable>]
+type ReviewerFindingDto =
+    { CardFront: string
+      Issue: string
+      Recommendation: string }
+
+/// Top-level structured reviewer LLM output.
 [<CLIMutable>]
 type ReviewerOutputDto =
     { Approved: bool
-      Feedback: string list }
+      Feedback: string list
+      Findings: ReviewerFindingDto list }
 
 type GenerationRequest =
     { Document: ParsedDocument
@@ -118,14 +129,28 @@ module ReviewerOutputDto =
         let feedback =
             if isNull (box dto) || isNull (box dto.Feedback) then []
             else dto.Feedback |> List.filter (String.IsNullOrWhiteSpace >> not)
+
+        let findingFeedback =
+            if isNull (box dto) || isNull (box dto.Findings) then []
+            else
+                dto.Findings
+                |> List.choose (fun finding ->
+                    if isNull (box finding) then
+                        None
+                    else
+                        let parts =
+                            [ finding.CardFront; finding.Issue; finding.Recommendation ]
+                            |> List.filter (String.IsNullOrWhiteSpace >> not)
+                        if parts.IsEmpty then None else Some(String.Join(": ", parts)))
+
         { Draft = draft
           Approved = dto.Approved
-          Feedback = feedback
+          Feedback = feedback @ findingFeedback
           Iteration = iteration }
 
 [<RequireQualifiedAccess>]
-module StructuredFlashCardDto =
-    let toFlashCard fallbackDirection (dto: StructuredFlashCardDto) : FlashCard =
+module TeacherCardDto =
+    let toFlashCard fallbackDirection (dto: TeacherCardDto) : FlashCard =
         let requireText fieldName (value: string) =
             if String.IsNullOrWhiteSpace value then
                 invalidOp $"Structured teacher output included an empty {fieldName}."
@@ -149,7 +174,7 @@ module TeacherOutputDto =
     let toDraft fallbackDirection request (dto: TeacherOutputDto) =
         if isNull (box dto) || isNull (box dto.Cards) then
             invalidOp "Structured teacher output did not include cards."
-        let cards = dto.Cards |> List.map (StructuredFlashCardDto.toFlashCard fallbackDirection)
+        let cards = dto.Cards |> List.map (TeacherCardDto.toFlashCard fallbackDirection)
         if cards.IsEmpty then
             invalidOp "Structured teacher output did not include any cards."
         ({ Request = request; Cards = cards } : TeacherDraft)

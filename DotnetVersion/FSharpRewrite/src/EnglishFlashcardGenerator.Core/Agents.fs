@@ -48,7 +48,7 @@ module FakeTeacherAgent =
 
 [<RequireQualifiedAccess>]
 module StructuredLlmAgent =
-    let private jsonOptions =
+    let private createJsonOptions () =
         JsonSerializerOptions(JsonSerializerDefaults.Web)
 
     let private teacherInstructions =
@@ -84,8 +84,8 @@ Section markdown:
                     ({ Front = card.Front
                        Back = card.Back
                        Example = card.Example |> Option.defaultValue ""
-                       Direction = card.Direction |> Option.defaultValue CardDirection.defaultValue |> CardDirection.label } : StructuredFlashCardDto)) }
-        let draftJson = JsonSerializer.Serialize(dto, jsonOptions)
+                       Direction = card.Direction |> Option.defaultValue CardDirection.defaultValue |> CardDirection.label } : TeacherCardDto)) }
+        let draftJson = JsonSerializer.Serialize(dto, createJsonOptions ())
         $"""Review this typed teacher output. Return approved=true only if the cards are ready to format as Obsidian SR at the writer boundary.
 
 Teacher output JSON:
@@ -96,7 +96,7 @@ Teacher output JSON:
         chatOptions.Instructions <- instructions
         chatOptions.Temperature <- Nullable<float32>(float32 options.Temperature)
         chatOptions.MaxOutputTokens <- (options.MaxOutputTokens |> Option.map Nullable<int> |> Option.defaultValue (Nullable<int>()))
-        chatOptions.ResponseFormat <- ChatResponseFormat.ForJsonSchema<'output>(jsonOptions, schemaName, schemaDescription)
+        chatOptions.ResponseFormat <- ChatResponseFormat.ForJsonSchema<'output>(createJsonOptions (), schemaName, schemaDescription)
         chatOptions
 
     let private createAgent name instructions schemaName schemaDescription options (chatClient: IChatClient) =
@@ -118,13 +118,13 @@ Teacher output JSON:
 
     let generateWithChatClient (chatClient: IChatClient) (options: LlmOptions) direction (request: GenerationRequest) (ct: CancellationToken) = task {
         let agent = createAgent "EnglishFlashcardTeacher" teacherInstructions "teacher_flashcard_output" "Typed English flashcards generated from one markdown section." options chatClient
-        let! response = agent.RunAsync<TeacherOutputDto>(teacherPrompt direction request, null, jsonOptions, null, ct)
+        let! response = agent.RunAsync<TeacherOutputDto>(teacherPrompt direction request, null, createJsonOptions (), null, ct)
         return TeacherOutputDto.toDraft direction request response.Result
     }
 
     let reviewWithChatClient (chatClient: IChatClient) (options: LlmOptions) (draft: TeacherDraft) (ct: CancellationToken) = task {
-        let agent = createAgent "EnglishFlashcardReviewer" reviewerInstructions "reviewer_flashcard_output" "Review decision and feedback for typed English flashcards." options chatClient
-        let! response = agent.RunAsync<ReviewerOutputDto>(reviewerPrompt draft, null, jsonOptions, null, ct)
+        let agent = createAgent "EnglishFlashcardReviewer" reviewerInstructions "reviewer_flashcard_output" "Review decision, feedback, and optional card-specific findings for typed English flashcards." options chatClient
+        let! response = agent.RunAsync<ReviewerOutputDto>(reviewerPrompt draft, null, createJsonOptions (), null, ct)
         return ReviewerOutputDto.toReview 1 draft response.Result
     }
 
