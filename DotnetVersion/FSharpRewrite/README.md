@@ -29,7 +29,7 @@ to search for information
 *Example sentence: I looked up the word in the dictionary.*
 ```
 
-The parser preserves per-card `?` / `??` direction, and the formatter writes each card with its own direction. The formatter strips accidental scheduling metadata from generated card fields, including `<!--SR:...-->`, `[!sr|card-metadata]`, YAML `sr-*` fields, standalone `?` / `??` lines inside card text, and accidental standalone `#flashcards` / `#review` tags. It also avoids the legacy `::` delimiter.
+The typed generator/reviewer path preserves per-card direction as data, and the formatter writes each card with its own `?` / `??` marker at the final Obsidian SR boundary. The formatter strips accidental scheduling metadata from generated card fields, including `<!--SR:...-->`, `[!sr|card-metadata]`, YAML `sr-*` fields, standalone `?` / `??` lines inside card text, and accidental standalone `#flashcards` / `#review` tags. It also avoids the legacy `::` delimiter.
 
 ## Generator modes
 
@@ -42,7 +42,7 @@ dotnet run --project src/EnglishFlashcardGenerator.Cli \
   --notes-out ./out/notes
 ```
 
-An OpenAI-compatible adapter is available for local or LiteLLM smoke tests:
+An OpenAI-compatible provider path is available for local or LiteLLM smoke tests through the Microsoft OpenAI SDK, `Microsoft.Extensions.AI`, and `ChatClientAgent`:
 
 ```bash
 dotnet run --project src/EnglishFlashcardGenerator.Cli \
@@ -54,9 +54,9 @@ dotnet run --project src/EnglishFlashcardGenerator.Cli \
   --llm-model LocalModel \
   --timeout-seconds 120 \
   --max-sections 1 \
-  --llm-disable-thinking
+  --max-output-tokens 512
 ```
 
-The API key is read from `--llm-api-key` or `LITELLM_API_KEY`. Do not commit keys or put them in templates. CLI values take precedence over environment values. The smoke adapter also accepts environment configuration for mode (`LITELLM_MODE` / `GENERATOR_MODE` / `LLM_MODE`), base URL (`LITELLM_BASE_URL` / `OPENAI_BASE_URL`), model (`LITELLM_MODEL` / `OPENAI_MODEL`), timeout (`LITELLM_TIMEOUT` or `LITELLM_TIMEOUT_SECONDS`, capped at 120), max sections (`LITELLM_MAX_SECTIONS`, capped at 2), optional max tokens (`LITELLM_MAX_TOKENS` or `LITELLM_MAX_OUTPUT_TOKENS`, capped at 32768 when set), and thinking suppression (`LITELLM_DISABLE_THINKING` / `OPENAI_DISABLE_THINKING`). By default the adapter does not send `max_tokens`; pass `--max-output-tokens` only for intentionally bounded smoke runs. The disable-thinking option sends `chat_template_kwargs.enable_thinking=false`, which is useful for local reasoning models that otherwise spend the output budget on hidden reasoning instead of final card content. The adapter calls the OpenAI-compatible `/chat/completions` endpoint and parses the same multiline Obsidian SR cards that the formatter writes.
+The API key is read from `--llm-api-key` or `LITELLM_API_KEY`. Do not commit keys or put them in templates. CLI values take precedence over environment values. The provider path also accepts environment configuration for mode (`LITELLM_MODE` / `GENERATOR_MODE` / `LLM_MODE`), base URL (`LITELLM_BASE_URL` / `OPENAI_BASE_URL`), model (`LITELLM_MODEL` / `OPENAI_MODEL`), timeout (`LITELLM_TIMEOUT` or `LITELLM_TIMEOUT_SECONDS`, capped at 120), max sections (`LITELLM_MAX_SECTIONS`, capped at 2), optional max tokens (`LITELLM_MAX_TOKENS` or `LITELLM_MAX_OUTPUT_TOKENS`, capped at 32768 when set), and thinking suppression (`LITELLM_DISABLE_THINKING` / `OPENAI_DISABLE_THINKING`). By default the provider path does not set `MaxOutputTokens`; pass `--max-output-tokens` only for intentionally bounded smoke runs.
 
-The implementation uses a thin injectable HTTP adapter inside the MAF workflow rather than a provider-specific `ChatClientAgent`. That keeps LiteLLM/local smoke testing provider-neutral and avoids hardcoded endpoints, models, or keys while preserving the workflow shape.
+LLM responses are requested as typed structured output (`TeacherOutputDto` / `ReviewerOutputDto`) through MAF `ChatClientAgent`; Obsidian SR markdown is produced only by the final formatter. `--llm-disable-thinking` is currently rejected for the framework provider path because the Microsoft abstractions used here do not expose LiteLLM's `chat_template_kwargs.enable_thinking=false` hook without dropping back to provider-specific raw HTTP JSON.

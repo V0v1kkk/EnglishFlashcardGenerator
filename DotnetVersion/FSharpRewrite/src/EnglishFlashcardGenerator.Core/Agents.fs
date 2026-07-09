@@ -1,60 +1,74 @@
 namespace EnglishFlashcardGenerator.Core
 
 open System
-open System.Net.Http
-open System.Net.Http.Headers
-open System.Text
+open System.ClientModel
 open System.Text.Json
-open System.Text.Json.Nodes
-open System.Text.RegularExpressions
 open System.Threading
 open System.Threading.Tasks
+open Microsoft.Agents.AI
+open Microsoft.Extensions.AI
+open OpenAI
 
 [<RequireQualifiedAccess>]
 module FakeTeacherAgent =
-    let private cardPattern = Regex(@"\*\*(?<front>[^*]+)\*\*\s*-\s*(?<back>[^\r\n]+)(?:\r?\n\*(?<example>[^*]+)\*)?", RegexOptions.Compiled)
+    let private tryParseVocabularyLine fallbackDirection (lines: string array) index (line: string) =
+        let trimmed = line.Trim()
+        if not (trimmed.StartsWith("**", StringComparison.Ordinal)) then
+            None
+        else
+            let closing = trimmed.IndexOf("**", 2, StringComparison.Ordinal)
+            if closing <= 2 then
+                None
+            else
+                let front = trimmed.Substring(2, closing - 2).Trim()
+                let rest = trimmed.Substring(closing + 2).TrimStart()
+                let delimiter = "-"
+                if not (rest.StartsWith(delimiter, StringComparison.Ordinal)) then
+                    None
+                else
+                    let back = rest.Substring(delimiter.Length).Trim()
+                    let example =
+                        if index + 1 < lines.Length then
+                            let next = lines.[index + 1].Trim()
+                            if next.StartsWith("*", StringComparison.Ordinal) && next.EndsWith("*", StringComparison.Ordinal) && next.Length > 2 then
+                                Some(next.Trim('*').Trim())
+                            else None
+                        else None
+                    if String.IsNullOrWhiteSpace front || String.IsNullOrWhiteSpace back then None
+                    else Some ({ Front = front; Back = back; Example = example; Direction = Some fallbackDirection } : FlashCard)
 
     let generate direction (request: GenerationRequest) =
+        let lines = request.Section.RawText.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n')
         let cards =
-            cardPattern.Matches(request.Section.RawText)
-            |> Seq.cast<Match>
-            |> Seq.map (fun m ->
-                { Front = m.Groups.["front"].Value.Trim()
-                  Back = m.Groups.["back"].Value.Trim()
-                  Example =
-                    let value = m.Groups.["example"].Value.Trim()
-                    if String.IsNullOrWhiteSpace value then None else Some value
-                  Direction = Some direction })
-            |> Seq.toList
-        { Request = request; Cards = cards }
+            lines
+            |> Array.mapi (tryParseVocabularyLine direction lines)
+            |> Array.choose id
+            |> Array.toList
+        ({ Request = request; Cards = cards } : TeacherDraft)
 
 [<RequireQualifiedAccess>]
-module OpenAICompatibleTeacherAgent =
-    let private systemPrompt =
-        """You are an English teacher generating Obsidian Spaced Repetition flashcards.
-Return only flashcards in multiline format:
-front
-?
-back
-or
-front
-??
-back
-Do not use Markdown tables, JSON, scheduling metadata, YAML sr-* fields, <!--SR:...-->, [!sr|card-metadata], :: delimiters, #flashcards, or #review tags inside card text.
-If you include an example, put it on the next non-empty back line exactly as: *Example sentence: ...*
-Do not put blank lines inside a single card. Separate cards with one blank line.
-Every front must be a self-contained cue that tells the learner what answer is expected.
-Do not create ambiguous bare-front cards like `tear` -> `torn`; rewrite them as a clear one-way cue, for example `three forms of the verb "tear"` -> `tear - tore - torn`."""
+module StructuredLlmAgent =
+    let private jsonOptions =
+        JsonSerializerOptions(JsonSerializerDefaults.Web)
 
-    let private userPrompt defaultDirection (request: GenerationRequest) =
-        let separator = CardDirection.separator defaultDirection
-        $"""Generate concise English learning flashcards for this note section.
-Choose the separator per card: `?` for one-way facts, `??` when the card is useful in both directions and should create a reversed sibling card.
-Use `{separator}` as the fallback separator only when the direction is not clear.
-Use `??` only for clean term <-> definition or phrase <-> meaning pairs where both sides work as prompts.
-Use `?` for grammar notes, usage notes, examples, verb forms, and any card whose front has to ask a specific question.
-Make each front answerable without looking at the source note. If a bare word or phrase would be ambiguous, add the missing cue in the front.
-Return at most 5 cards.
+    let private teacherInstructions =
+        """You are an English teacher generating typed flashcard data.
+Return only structured data matching the requested schema.
+Do not return Obsidian Spaced Repetition markdown, card separators, YAML scheduling fields, HTML comments, #flashcards, #review, or :: delimiters.
+Each card must contain front, back, optional example, and direction.
+Use direction `one-way` for grammar notes, usage notes, examples, verb forms, and any cue that asks for a specific answer.
+Use direction `bidirectional` only for clean term <-> definition or phrase <-> meaning pairs where both sides work as prompts.
+Every front must be self-contained. Do not create ambiguous bare-front cards like `tear` -> `torn`; rewrite them as a clear cue such as `three forms of the verb "tear"` -> `tear - tore - torn`."""
+
+    let private reviewerInstructions =
+        """You review typed English-learning flashcards.
+Return only structured data matching the requested schema.
+Approve only when every card front is answerable without the source note, every back answers that front, examples are clean sentence text, and directions are correctly assigned as `one-way` or `bidirectional`.
+Reject ambiguous bare-word fronts for verb forms or usage notes and explain the problem in feedback."""
+
+    let private teacherPrompt defaultDirection (request: GenerationRequest) =
+        $"""Generate at most 5 concise English learning flashcards for this note section.
+Use `{CardDirection.separator defaultDirection}` only as the fallback concept for direction when the direction is unclear; the structured `direction` field must be `one-way` or `bidirectional`.
 
 Section heading:
 {request.Section.HeadingText}
@@ -62,71 +76,66 @@ Section heading:
 Section markdown:
 {request.Section.RawText}"""
 
-    let private requireJsonString (propertyName: string) (element: JsonElement) =
-        match element.TryGetProperty(propertyName) with
-        | true, value when value.ValueKind = JsonValueKind.String -> value.GetString()
-        | _ -> invalidOp $"OpenAI-compatible response did not include {propertyName}."
+    let private reviewerPrompt (draft: TeacherDraft) =
+        let dto =
+            { Cards =
+                draft.Cards
+                |> List.map (fun card ->
+                    ({ Front = card.Front
+                       Back = card.Back
+                       Example = card.Example |> Option.defaultValue ""
+                       Direction = card.Direction |> Option.defaultValue CardDirection.defaultValue |> CardDirection.label } : StructuredFlashCardDto)) }
+        let draftJson = JsonSerializer.Serialize(dto, jsonOptions)
+        $"""Review this typed teacher output. Return approved=true only if the cards are ready to format as Obsidian SR at the writer boundary.
 
-    let private extractContent (json: string) =
-        use document = JsonDocument.Parse(json)
-        let root = document.RootElement
-        match root.TryGetProperty("choices") with
-        | false, _ -> invalidOp "OpenAI-compatible response did not include choices."
-        | true, choices when choices.ValueKind <> JsonValueKind.Array || choices.GetArrayLength() = 0 ->
-            invalidOp "OpenAI-compatible response choices were empty."
-        | true, choices ->
-            let first = choices.[0]
-            match first.TryGetProperty("message") with
-            | true, message -> requireJsonString "content" message
-            | false, _ ->
-                match first.TryGetProperty("text") with
-                | true, text when text.ValueKind = JsonValueKind.String -> text.GetString()
-                | _ -> invalidOp "OpenAI-compatible response did not include message.content."
+Teacher output JSON:
+{draftJson}"""
 
-    let private buildRequestJson options direction request =
-        let message (role: string) (content: string) =
-            let node = JsonObject()
-            node["role"] <- JsonValue.Create(role)
-            node["content"] <- JsonValue.Create(content)
-            node
+    let private chatOptions<'output> instructions schemaName schemaDescription (options: LlmOptions) =
+        let chatOptions = ChatOptions()
+        chatOptions.Instructions <- instructions
+        chatOptions.Temperature <- Nullable<float32>(float32 options.Temperature)
+        chatOptions.MaxOutputTokens <- (options.MaxOutputTokens |> Option.map Nullable<int> |> Option.defaultValue (Nullable<int>()))
+        chatOptions.ResponseFormat <- ChatResponseFormat.ForJsonSchema<'output>(jsonOptions, schemaName, schemaDescription)
+        chatOptions
 
-        let payload = JsonObject()
-        payload["model"] <- JsonValue.Create(options.Model)
-        payload["messages"] <- JsonArray(message "system" systemPrompt, message "user" (userPrompt direction request))
-        payload["temperature"] <- JsonValue.Create(options.Temperature)
-        options.MaxOutputTokens
-        |> Option.iter (fun maxTokens -> payload["max_tokens"] <- JsonValue.Create(maxTokens))
+    let private createAgent name instructions schemaName schemaDescription options (chatClient: IChatClient) =
+        let agentOptions = ChatClientAgentOptions()
+        agentOptions.Name <- name
+        agentOptions.ChatOptions <- chatOptions instructions schemaName schemaDescription options
+        ChatClientAgent(chatClient, agentOptions)
+
+    let createOpenAICompatibleChatClient (options: LlmOptions) =
         if options.DisableThinking then
-            let chatTemplate = JsonObject()
-            chatTemplate["enable_thinking"] <- JsonValue.Create(false)
-            payload["chat_template_kwargs"] <- chatTemplate
-        payload.ToJsonString()
+            invalidOp "--llm-disable-thinking is not supported through Microsoft.Extensions.AI/OpenAI chat abstractions without provider-specific raw HTTP JSON. Run without that flag or use a provider-supported reasoning option."
+        let baseUrl = options.BaseUrl.TrimEnd('/')
+        if baseUrl.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase) then
+            invalidOp "OpenAI-compatible base URL must be a service root such as https://host/v1, not a /chat/completions endpoint."
+        let clientOptions = OpenAIClientOptions()
+        clientOptions.Endpoint <- Uri(baseUrl)
+        let client = OpenAIClient(ApiKeyCredential(options.ApiKey), clientOptions)
+        client.GetChatClient(options.Model).AsIChatClient()
 
-    let private endpoint (baseUrl: string) =
-        let trimmed = baseUrl.TrimEnd('/')
-        if trimmed.EndsWith("/chat/completions", StringComparison.OrdinalIgnoreCase) then trimmed
-        else $"{trimmed}/chat/completions"
+    let generateWithChatClient (chatClient: IChatClient) (options: LlmOptions) direction (request: GenerationRequest) (ct: CancellationToken) = task {
+        let agent = createAgent "EnglishFlashcardTeacher" teacherInstructions "teacher_flashcard_output" "Typed English flashcards generated from one markdown section." options chatClient
+        let! response = agent.RunAsync<TeacherOutputDto>(teacherPrompt direction request, null, jsonOptions, null, ct)
+        return TeacherOutputDto.toDraft direction request response.Result
+    }
 
-    let generateWithClient (client: HttpClient) (options: LlmOptions) direction (request: GenerationRequest) (ct: CancellationToken) = task {
-        use message = new HttpRequestMessage(HttpMethod.Post, endpoint options.BaseUrl)
-        message.Headers.Authorization <- AuthenticationHeaderValue("Bearer", options.ApiKey)
-        message.Content <- new StringContent(buildRequestJson options direction request, Encoding.UTF8, "application/json")
-        use! response = client.SendAsync(message, ct)
-        let! body = response.Content.ReadAsStringAsync(ct)
-        if not response.IsSuccessStatusCode then
-            return invalidOp $"OpenAI-compatible chat request failed with HTTP {int response.StatusCode}."
-        else
-            let content = extractContent body
-            let cards = ObsidianSrCardParser.parse content
-            if cards.IsEmpty then
-                return invalidOp "OpenAI-compatible chat response did not contain any parseable Obsidian SR cards."
-            else
-                return { Request = request; Cards = cards }
+    let reviewWithChatClient (chatClient: IChatClient) (options: LlmOptions) (draft: TeacherDraft) (ct: CancellationToken) = task {
+        let agent = createAgent "EnglishFlashcardReviewer" reviewerInstructions "reviewer_flashcard_output" "Review decision and feedback for typed English flashcards." options chatClient
+        let! response = agent.RunAsync<ReviewerOutputDto>(reviewerPrompt draft, null, jsonOptions, null, ct)
+        return ReviewerOutputDto.toReview 1 draft response.Result
     }
 
     let generate options direction request ct = task {
-        use client = new HttpClient(Timeout = TimeSpan.FromSeconds(float options.TimeoutSeconds))
-        return! generateWithClient client options direction request ct
+        use chatClient = createOpenAICompatibleChatClient options
+        return! generateWithChatClient chatClient options direction request ct
+    }
+
+    let review options draft ct = task {
+        use chatClient = createOpenAICompatibleChatClient options
+        return! reviewWithChatClient chatClient options draft ct
     }
 
 [<RequireQualifiedAccess>]
@@ -134,7 +143,7 @@ module TeacherAgent =
     let generateAsync (options: GenerationOptions) (request: GenerationRequest) (ct: CancellationToken) = task {
         match options.Mode, options.Llm with
         | Fake, _ -> return FakeTeacherAgent.generate options.CardDirection request
-        | OpenAICompatible, Some llm -> return! OpenAICompatibleTeacherAgent.generate llm options.CardDirection request ct
+        | OpenAICompatible, Some llm -> return! StructuredLlmAgent.generate llm options.CardDirection request ct
         | OpenAICompatible, None -> return invalidOp "OpenAI-compatible generator mode requires LLM options."
     }
 
@@ -150,6 +159,15 @@ module FakeReviewerAgent =
           Iteration = 1 }
 
 [<RequireQualifiedAccess>]
+module ReviewerAgent =
+    let reviewAsync (options: GenerationOptions) (draft: TeacherDraft) (ct: CancellationToken) = task {
+        match options.Mode, options.Llm with
+        | Fake, _ -> return FakeReviewerAgent.review draft
+        | OpenAICompatible, Some llm -> return! StructuredLlmAgent.review llm draft ct
+        | OpenAICompatible, None -> return invalidOp "OpenAI-compatible generator mode requires LLM options."
+    }
+
+[<RequireQualifiedAccess>]
 module CardNormalizer =
     let normalize (review: ReviewResult) =
         if not review.Approved then
@@ -159,9 +177,9 @@ module CardNormalizer =
               Cards =
                 review.Draft.Cards
                 |> List.map (fun card ->
-                    { Front = CardContentSanitizer.clean card.Front
-                      Back = CardContentSanitizer.clean card.Back
-                      Example = card.Example |> Option.map CardContentSanitizer.clean |> Option.filter (String.IsNullOrWhiteSpace >> not)
-                      Direction = card.Direction })
+                    ({ Front = CardContentSanitizer.clean card.Front
+                       Back = CardContentSanitizer.clean card.Back
+                       Example = card.Example |> Option.map CardContentSanitizer.clean |> Option.filter (String.IsNullOrWhiteSpace >> not)
+                       Direction = card.Direction } : FlashCard))
                 |> List.filter (fun card -> not (String.IsNullOrWhiteSpace card.Front) && not (String.IsNullOrWhiteSpace card.Back))
                 |> List.distinctBy (fun c -> c.Front.Trim().ToLowerInvariant()) }

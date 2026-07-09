@@ -61,6 +61,10 @@ module CardDirection =
         | OneWay -> "?"
         | Bidirectional -> "??"
 
+    let label = function
+        | OneWay -> "one-way"
+        | Bidirectional -> "bidirectional"
+
     let tryParse (value: string) =
         match value.Trim().ToLowerInvariant() with
         | "one-way" | "oneway" | "one_way" | "forward" | "?" -> Some OneWay
@@ -78,6 +82,22 @@ type FlashCard =
       Example: string option
       Direction: CardDirection option }
 
+[<CLIMutable>]
+type StructuredFlashCardDto =
+    { Front: string
+      Back: string
+      Example: string
+      Direction: string }
+
+[<CLIMutable>]
+type TeacherOutputDto =
+    { Cards: StructuredFlashCardDto list }
+
+[<CLIMutable>]
+type ReviewerOutputDto =
+    { Approved: bool
+      Feedback: string list }
+
 type GenerationRequest =
     { Document: ParsedDocument
       Section: MarkdownSection }
@@ -91,6 +111,48 @@ type ReviewResult =
       Approved: bool
       Feedback: string list
       Iteration: int }
+
+[<RequireQualifiedAccess>]
+module ReviewerOutputDto =
+    let toReview iteration draft (dto: ReviewerOutputDto) =
+        let feedback =
+            if isNull (box dto) || isNull (box dto.Feedback) then []
+            else dto.Feedback |> List.filter (String.IsNullOrWhiteSpace >> not)
+        { Draft = draft
+          Approved = dto.Approved
+          Feedback = feedback
+          Iteration = iteration }
+
+[<RequireQualifiedAccess>]
+module StructuredFlashCardDto =
+    let toFlashCard fallbackDirection (dto: StructuredFlashCardDto) : FlashCard =
+        let requireText fieldName (value: string) =
+            if String.IsNullOrWhiteSpace value then
+                invalidOp $"Structured teacher output included an empty {fieldName}."
+            value.Trim()
+
+        let direction =
+            if String.IsNullOrWhiteSpace dto.Direction then
+                fallbackDirection
+            else
+                match CardDirection.tryParse dto.Direction with
+                | Some parsed -> parsed
+                | None -> invalidOp $"Structured teacher output included unsupported direction '{dto.Direction}'."
+
+        ({ Front = requireText "front" dto.Front
+           Back = requireText "back" dto.Back
+           Example = if String.IsNullOrWhiteSpace dto.Example then None else Some(dto.Example.Trim())
+           Direction = Some direction } : FlashCard)
+
+[<RequireQualifiedAccess>]
+module TeacherOutputDto =
+    let toDraft fallbackDirection request (dto: TeacherOutputDto) =
+        if isNull (box dto) || isNull (box dto.Cards) then
+            invalidOp "Structured teacher output did not include cards."
+        let cards = dto.Cards |> List.map (StructuredFlashCardDto.toFlashCard fallbackDirection)
+        if cards.IsEmpty then
+            invalidOp "Structured teacher output did not include any cards."
+        ({ Request = request; Cards = cards } : TeacherDraft)
 
 type NormalizedCards =
     { Section: MarkdownSection

@@ -65,39 +65,6 @@ module FlashcardFormatter =
     let formatCards cards = formatCardsWithFallback CardDirection.defaultValue cards
 
 [<RequireQualifiedAccess>]
-module ObsidianSrCardParser =
-    let private tryParseBlock (block: string) =
-        let lines =
-            block.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n')
-            |> Array.map (fun line -> line.Trim())
-            |> Array.filter (String.IsNullOrWhiteSpace >> not)
-            |> Array.toList
-
-        let separatorIndex = lines |> List.tryFindIndex (fun line -> line = "?" || line = "??")
-        match separatorIndex with
-        | None -> None
-        | Some index when index = 0 || index = lines.Length - 1 -> None
-        | Some index ->
-            let direction = CardDirection.parse lines.[index]
-            let front = lines |> List.take index |> String.concat " " |> CardContentSanitizer.clean
-            let backLines = lines |> List.skip (index + 1)
-            let examplePrefix = "*Example sentence:"
-            let example, definitionLines =
-                match backLines |> List.tryLast with
-                | Some last when last.StartsWith(examplePrefix, StringComparison.OrdinalIgnoreCase) && last.EndsWith("*") ->
-                    let example = last.Substring(examplePrefix.Length).Trim().TrimEnd('*').Trim()
-                    Some (CardContentSanitizer.clean example), backLines |> List.take (backLines.Length - 1)
-                | _ -> None, backLines
-            let back = definitionLines |> String.concat " " |> CardContentSanitizer.clean
-            if String.IsNullOrWhiteSpace front || String.IsNullOrWhiteSpace back then None
-            else Some { Front = front; Back = back; Example = example; Direction = Some direction }
-
-    let parse (content: string) =
-        content.Replace("\r\n", "\n").Replace("\r", "\n").Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
-        |> Array.choose tryParseBlock
-        |> Array.toList
-
-[<RequireQualifiedAccess>]
 module OutputPathResolver =
     let private datePart (section: MarkdownSection) =
         section.Date

@@ -28,7 +28,7 @@ module FlashcardWorkflow =
                 MarkdownDocumentParser.parse (Some input.SourcePath) input.MarkdownText)
         let planner = bind "section-planner" (chooseSection generation.MaxSections)
         let teacher = bindAsync "teacher-agent" (fun request ct -> TeacherAgent.generateAsync generation request ct)
-        let reviewer = bind "fake-reviewer-agent" FakeReviewerAgent.review
+        let reviewer = bindAsync "reviewer-agent" (fun draft ct -> ReviewerAgent.reviewAsync generation draft ct)
         let normalizer = bind "card-normalizer" CardNormalizer.normalize
         let writer =
             bind "output-writer" (fun normalized ->
