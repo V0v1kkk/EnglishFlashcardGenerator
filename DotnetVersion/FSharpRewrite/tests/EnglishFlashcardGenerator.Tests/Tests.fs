@@ -289,6 +289,27 @@ type StubChatClient(responseJson: string, inspect: ChatOptions -> unit) =
 
         member _.Dispose() = ()
 
+type SequencedStubChatClient(responseJsons: string list, inspect: int -> ChatOptions -> unit) =
+    let mutable responseIndex = 0
+
+    interface IChatClient with
+        member _.GetResponseAsync(messages: IEnumerable<ChatMessage>, options: ChatOptions, cancellationToken: CancellationToken) =
+            if responseIndex >= responseJsons.Length then
+                invalidOp "Stub chat client received more requests than configured responses."
+
+            let currentIndex = responseIndex
+            responseIndex <- responseIndex + 1
+            inspect currentIndex options
+            let message = ChatMessage(ChatRole.Assistant, responseJsons.[currentIndex])
+            Task.FromResult(ChatResponse(message))
+
+        member _.GetStreamingResponseAsync(messages: IEnumerable<ChatMessage>, options: ChatOptions, cancellationToken: CancellationToken) =
+            raise (NotSupportedException("Streaming is not used by these tests."))
+
+        member _.GetService(serviceType: Type, serviceKey: obj) = null
+
+        member _.Dispose() = ()
+
 module StructuredLlmAgentTests =
     let private request =
         let parsed = MarkdownDocumentParser.parse None TestData.sample
@@ -356,3 +377,71 @@ module StructuredLlmAgentTests =
         let options = { llmOptions with BaseUrl = "https://example.test/v1/chat/completions" }
         let ex = Assert.Throws<InvalidOperationException>(fun () -> StructuredLlmAgent.createOpenAICompatibleChatClient options |> ignore)
         Assert.Contains("service root", ex.Message)
+
+module WorkflowStructuredLlmTests =
+    let private output () =
+        let root = Path.Combine(Path.GetTempPath(), "efg-tests", Guid.NewGuid().ToString("N"))
+        { CardsDirectory = OutputDirectory.createUnsafe (Path.Combine(root, "cards"))
+          NotesDirectory = OutputDirectory.createUnsafe (Path.Combine(root, "notes"))
+          Mode = DryRun
+          CardDirection = OneWay }
+
+    let private llmOptions =
+        { BaseUrl = "https://example.test/v1"
+          ApiKey = "test-key"
+          Model = "LocalModel"
+          TimeoutSeconds = 120
+          MaxOutputTokens = Some 128
+          Temperature = 0.0
+          DisableThinking = false }
+
+    let private workflowInput output =
+        { SourcePath = SourcePath.createUnsafe "sample.md"
+          MarkdownText = TestData.sample
+          Output = output
+          Generation =
+            { Mode = OpenAICompatible
+              CardDirection = output.CardDirection
+              MaxSections = 1
+              Llm = Some llmOptions } }
+
+    [<Fact>]
+    let ``workflow can run through structured teacher and reviewer DTO path without Obsidian output parser`` () = task {
+        let output = output ()
+        let teacherResponse = """{"cards":[{"front":"look up","back":"to search for information","example":"I looked up the word.","direction":"one-way"}]}"""
+        let reviewerResponse = """{"approved":true,"feedback":[]}"""
+        let mutable structuredCalls = 0
+        use client =
+            new SequencedStubChatClient(
+                [ teacherResponse; reviewerResponse ],
+                fun _ options ->
+                    structuredCalls <- structuredCalls + 1
+                    Assert.NotNull(options.ResponseFormat))
+
+        let teacher request ct = StructuredLlmAgent.generateWithChatClient client llmOptions output.CardDirection request ct
+        let reviewer draft ct = StructuredLlmAgent.reviewWithChatClient client llmOptions draft ct
+
+        let! result = FlashcardWorkflow.runWithAgentsAsync (workflowInput output) teacher reviewer CancellationToken.None
+
+        let card = Assert.Single(result.Cards)
+        Assert.Equal("look up", card.Front)
+        Assert.Contains("look up\n?\nto search for information", result.WritePlan.CardsContent)
+        Assert.DoesNotContain("look up::", result.WritePlan.CardsContent)
+        Assert.Equal(2, structuredCalls)
+    }
+
+    [<Fact>]
+    let ``workflow reports underlying executor failure when no output is produced`` () = task {
+        let output = output ()
+        let teacher (_: GenerationRequest) (_: CancellationToken) = task {
+            return raise (InvalidOperationException("provider rejected structured output schema"))
+        }
+        let reviewer draft (_: CancellationToken) = task { return FakeReviewerAgent.review draft }
+
+        let! ex = Assert.ThrowsAsync<InvalidOperationException>(fun () ->
+            FlashcardWorkflow.runWithAgentsAsync (workflowInput output) teacher reviewer CancellationToken.None)
+
+        Assert.Contains("Workflow completed without a WorkflowRunResult output", ex.Message)
+        Assert.Contains("teacher-agent", ex.Message)
+        Assert.Contains("provider rejected structured output schema", ex.Message)
+    }
