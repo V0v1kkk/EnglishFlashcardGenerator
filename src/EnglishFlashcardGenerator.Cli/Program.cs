@@ -1,5 +1,6 @@
-﻿using EnglishFlashcardGenerator.Core;
+using EnglishFlashcardGenerator.Core;
 using EnglishFlashcardGenerator.Core.Agents;
+using Microsoft.Extensions.Logging;
 
 static string? Option(string[] args, string name)
 {
@@ -54,8 +55,16 @@ var maxTokens = int.TryParse(Environment.GetEnvironmentVariable("LITELLM_MAX_OUT
 var networkTimeout = OptionalSecondsEnvironment("LITELLM_NETWORK_TIMEOUT_SECONDS") ?? TimeSpan.FromSeconds(600);
 var maxNetworkRetries = OptionalNonNegativeEnvironment("LITELLM_MAX_NETWORK_RETRIES") ?? 0;
 var request = new NoteProcessingRequest(source, cardsOut, sourceOut, apply, maxDays, workers, iterations, maxGroups);
-var agents = MafStructuredAgentPort.FromOpenAICompatible(new LlmOptions(baseUrl, apiKey, model, temperature, maxTokens, networkTimeout, maxNetworkRetries));
-var workflow = CSharpMafWorkflowFactory.BuildNoteWorkflow(agents);
+
+using var loggerFactory = LoggerFactory.Create(builder =>
+{
+    builder.AddConsole();
+    builder.SetMinimumLevel(LogLevel.Information);
+});
+var logger = loggerFactory.CreateLogger("Workflow");
+
+var agents = MafStructuredAgentPort.FromOpenAICompatible(new LlmOptions(baseUrl, apiKey, model, temperature, maxTokens, networkTimeout, maxNetworkRetries), loggerFactory);
+var workflow = CSharpMafWorkflowFactory.BuildNoteWorkflow(agents, logger);
 var summary = await WorkflowRunner.RunAsync<RunSummary>(workflow, request);
 
 Console.WriteLine($"days={summary.DaysProcessed} succeeded={summary.DaysSucceeded} failed={summary.DaysFailed} cards={summary.CardsWritten}");

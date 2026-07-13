@@ -4,6 +4,8 @@ using OpenAI;
 using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Text.Json;
+using EnglishFlashcardGenerator.Core.Prompts;
+using Microsoft.Extensions.Logging;
 
 namespace EnglishFlashcardGenerator.Core.Agents;
 
@@ -30,38 +32,55 @@ public sealed record LlmOptions(
     TimeSpan? NetworkTimeout = null,
     int? MaxNetworkRetries = null);
 
-public sealed class MafStructuredAgentPort(IChatClient chatClient, LlmOptions options) : IStructuredAgentPort
+public sealed class MafStructuredAgentPort(IChatClient chatClient, LlmOptions options, ILogger<MafStructuredAgentPort> logger) : IStructuredAgentPort
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    public ValueTask<GroupPlanDto> PlanGroupsAsync(DayChunk day, NoteProcessingRequest request, CancellationToken cancellationToken) =>
-        RunAsync<GroupPlanDto>(
+    public async ValueTask<GroupPlanDto> PlanGroupsAsync(DayChunk day, NoteProcessingRequest request, CancellationToken cancellationToken)
+    {
+        var result = await RunAsync<GroupPlanDto>(
             "EnglishGroupPlanner",
             "group_plan_output",
             "Semantic topic groups grounded in one day of English-learning Markdown.",
-            "Identify natural English-learning topic groups. Preserve source order and keep source excerpts copied from the input.",
+            PromptLoader.GetPrompt("EnglishGroupPlanner"),
             $"Day heading: {day.Heading}\n\nMarkdown:\n{day.Markdown}",
             cancellationToken);
+        logger.LogInformation("Planner returned {Count} topic groups for {Heading}.", result.Groups.Count, day.Heading);
+        return result;
+    }
 
-    public ValueTask<TeacherOutputDto> GenerateCardsAsync(TeacherRequest request, CancellationToken cancellationToken) =>
-        RunAsync<TeacherOutputDto>(
+    public async ValueTask<TeacherOutputDto> GenerateCardsAsync(TeacherRequest request, CancellationToken cancellationToken)
+    {
+        var result = await RunAsync<TeacherOutputDto>(
             "EnglishFlashcardTeacher",
             "teacher_flashcard_output",
             "Typed flashcards for one English-learning topic group.",
-            "Generate concise, self-contained flashcards as typed data only. Do not return Obsidian markdown or separators.",
+            PromptLoader.GetPrompt("EnglishFlashcardTeacher"),
             $"Group: {request.Group.Title}\nIteration: {request.Iteration}\nCritic feedback: {request.CriticFeedback ?? "none"}\n\nSource excerpt:\n{request.Group.SourceExcerpt}",
             cancellationToken);
+        logger.LogInformation("Teacher generated {Count} cards (Iteration {Iteration}) for group '{Group}'.", result.Cards?.Count ?? 0, request.Iteration, request.Group.Title);
+        return result;
+    }
 
-    public ValueTask<CriticOutputDto> ReviewCardsAsync(TeacherDraft draft, CancellationToken cancellationToken)
+    public async ValueTask<CriticOutputDto> ReviewCardsAsync(TeacherDraft draft, CancellationToken cancellationToken)
     {
         var json = JsonSerializer.Serialize(draft.Cards.Select(c => new TeacherCardDto(c.Front, c.Back, c.Example, c.Direction == CardDirection.Bidirectional ? "bidirectional" : "one-way")), JsonOptions);
-        return RunAsync<CriticOutputDto>(
+        var result = await RunAsync<CriticOutputDto>(
             "EnglishFlashcardCritic",
             "critic_flashcard_output",
             "Review verdict and feedback for typed English flashcards.",
-            "Approve only answerable cards. Require self-contained fronts and correct direction. Return structured data only.",
+            PromptLoader.GetPrompt("EnglishFlashcardCritic"),
             $"Review these flashcards for group {draft.Group.Title}:\n{json}",
             cancellationToken);
+        logger.LogInformation("Critic reviewed {Count} cards for group '{Group}'. Verdict: {Verdict}. Findings: {FindingsCount}", draft.Cards.Count, draft.Group.Title, result.Verdict, result.Findings?.Count ?? 0);
+        if (result.Findings != null)
+        {
+            foreach (var finding in result.Findings)
+            {
+                logger.LogWarning("Critic Finding -> [{Front}]: {Issue} -> {Rec}", finding.CardFront, finding.Issue, finding.Recommendation);
+            }
+        }
+        return result;
     }
 
     private async ValueTask<T> RunAsync<T>(string name, string schemaName, string schemaDescription, string instructions, string prompt, CancellationToken cancellationToken)
@@ -95,7 +114,7 @@ public sealed class MafStructuredAgentPort(IChatClient chatClient, LlmOptions op
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public static MafStructuredAgentPort FromOpenAICompatible(LlmOptions options)
+    public static MafStructuredAgentPort FromOpenAICompatible(LlmOptions options, ILoggerFactory loggerFactory)
     {
         var clientOptions = new OpenAIClientOptions { Endpoint = new Uri(options.BaseUrl.TrimEnd('/')) };
         if (options.NetworkTimeout is { } networkTimeout)
@@ -109,6 +128,6 @@ public sealed class MafStructuredAgentPort(IChatClient chatClient, LlmOptions op
         }
 
         var client = new OpenAIClient(new ApiKeyCredential(options.ApiKey), clientOptions);
-        return new MafStructuredAgentPort(client.GetChatClient(options.Model).AsIChatClient(), options);
+        return new MafStructuredAgentPort(client.GetChatClient(options.Model).AsIChatClient(), options, loggerFactory.CreateLogger<MafStructuredAgentPort>());
     }
 }

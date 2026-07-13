@@ -2,6 +2,7 @@ using EnglishFlashcardGenerator.Core.Agents;
 using EnglishFlashcardGenerator.Core.Markdown;
 using EnglishFlashcardGenerator.Core.Output;
 using Microsoft.Agents.AI.Workflows;
+using Microsoft.Extensions.Logging;
 
 namespace EnglishFlashcardGenerator.Core;
 
@@ -9,7 +10,7 @@ public sealed record MergedWorkerAccumulator(DayChunk Day, NoteProcessingRequest
 
 public static class CSharpMafWorkflowFactory
 {
-    public static Workflow BuildNoteWorkflow(IStructuredAgentPort agents)
+    public static Workflow BuildNoteWorkflow(IStructuredAgentPort agents, ILogger logger)
     {
         var read = Bind<NoteProcessingRequest, MarkdownSource>("read-source", request =>
             new MarkdownSource(request.SourcePath, File.ReadAllText(request.SourcePath), request));
@@ -22,7 +23,8 @@ public static class CSharpMafWorkflowFactory
             var results = new List<DayResult>();
             foreach (var day in selected.Days)
             {
-                var dayWorkflow = BuildDayWorkflow(agents, selected.Options.MaxParallelGroupWorkers);
+                logger.LogInformation("Starting processing for day: {Heading}", day.Heading);
+                var dayWorkflow = BuildDayWorkflow(agents, selected.Options.MaxParallelGroupWorkers, logger);
                 results.Add(await WorkflowRunner.RunAsync<DayResult>(dayWorkflow, new DayProcessingRequest(day, selected.Options), ct).ConfigureAwait(false));
             }
 
@@ -48,7 +50,7 @@ public static class CSharpMafWorkflowFactory
             .Build();
     }
 
-    public static Workflow BuildDayWorkflow(IStructuredAgentPort agents, int workerCount)
+    public static Workflow BuildDayWorkflow(IStructuredAgentPort agents, int workerCount, ILogger logger)
     {
         if (workerCount < 1) throw new ArgumentOutOfRangeException(nameof(workerCount));
 
@@ -73,13 +75,14 @@ public static class CSharpMafWorkflowFactory
         });
         var partition = Bind<ValidatedGroupPlan, WorkerPartitionPlan>("partition-groups", plan =>
         {
+            logger.LogInformation("Day '{Heading}' planner identified {Count} valid groups.", plan.Day.Heading, plan.Groups.Count);
             var batches = Enumerable.Range(0, workerCount).Select(i => new WorkerBatch(i, [])).ToArray();
             var mutable = batches.Select(b => new List<TopicGroup>()).ToArray();
             for (var i = 0; i < plan.Groups.Count; i++) mutable[i % workerCount].Add(plan.Groups[i]);
             return new WorkerPartitionPlan(plan.Day, mutable.Select((items, i) => new WorkerBatch(i, items)).ToArray(), plan.Options, plan.Warnings);
         });
         var workers = Enumerable.Range(0, workerCount)
-            .Select(i => BuildGroupWorkerWorkflow(i, agents).BindAsExecutor($"group-worker-{i}"))
+            .Select(i => BuildGroupWorkerWorkflow(i, agents, logger).BindAsExecutor($"group-worker-{i}"))
             .ToArray();
         var merge = ExecutorBindingExtensions.BindAsExecutor<WorkerBatchResult, MergedWorkerAccumulator>(
             (current, result) =>
@@ -125,7 +128,7 @@ public static class CSharpMafWorkflowFactory
             .Build();
     }
 
-    public static Workflow BuildGroupWorkerWorkflow(int workerIndex, IStructuredAgentPort agents)
+    public static Workflow BuildGroupWorkerWorkflow(int workerIndex, IStructuredAgentPort agents, ILogger logger)
     {
         var select = Bind<WorkerPartitionPlan, WorkerBatchRequest>($"select-worker-batch-{workerIndex}", plan =>
         {
@@ -137,7 +140,7 @@ public static class CSharpMafWorkflowFactory
             var results = new List<GroupResult>();
             foreach (var group in request.Batch.Groups)
             {
-                var workflow = BuildGroupCardWorkflow(agents);
+                var workflow = BuildGroupCardWorkflow(agents, logger);
                 results.Add(await WorkflowRunner.RunAsync<GroupResult>(workflow, new GroupCardRequest(request.Day, group, request.Options), ct).ConfigureAwait(false));
             }
 
@@ -151,7 +154,7 @@ public static class CSharpMafWorkflowFactory
             .Build();
     }
 
-    public static Workflow BuildGroupCardWorkflow(IStructuredAgentPort agents)
+    public static Workflow BuildGroupCardWorkflow(IStructuredAgentPort agents, ILogger logger)
     {
         var buildInitial = Bind<GroupCardRequest, TeacherRequest>("build-teacher-request", request =>
             new TeacherRequest(request.Day, request.Group, 1, null, request.Options));
@@ -189,7 +192,10 @@ public static class CSharpMafWorkflowFactory
             return new RevisionDecision(review.Day, review.Group, review.Draft, review.Verdict, shouldRevise, !shouldRevise, review.Feedback, review.Draft.Options, review.Warnings);
         });
         var finalize = Bind<RevisionDecision, GroupResult>("finalize-group-result", decision =>
-            new GroupResult(decision.Group, decision.Verdict == CriticVerdict.Rejected ? [] : decision.Draft.Cards, decision.Draft.Iteration, decision.Verdict == CriticVerdict.Approved, decision.Warnings));
+        {
+            logger.LogInformation("Finalized group '{Group}'. Verdict: {Verdict}. Total iterations: {Iteration}. Cards kept: {Count}", decision.Group.Title, decision.Verdict, decision.Draft.Iteration, decision.Verdict == CriticVerdict.Rejected ? 0 : decision.Draft.Cards.Count);
+            return new GroupResult(decision.Group, decision.Verdict == CriticVerdict.Rejected ? [] : decision.Draft.Cards, decision.Draft.Iteration, decision.Verdict == CriticVerdict.Approved, decision.Warnings);
+        });
 
         return new WorkflowBuilder(buildInitial)
             .WithName("EnglishFlashcards.GroupCardWorkflow.CSharpV2")
