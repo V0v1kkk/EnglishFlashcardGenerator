@@ -5,3 +5,4 @@ Guidelines:
 2. Keep the source excerpts exactly as they appear in the original text (do not modify, summarize, or translate them).
 3. Assign a clear, concise `Title` to each group.
 4. Maintain the original sequential flow of the notes.
+5. **IGNORE raw data, personal exercise notes, plain tables, or non-linguistic trivia.** Only extract excerpts that have clear English language-learning value. If a section contains no learnable language concepts, do not include it in any group.

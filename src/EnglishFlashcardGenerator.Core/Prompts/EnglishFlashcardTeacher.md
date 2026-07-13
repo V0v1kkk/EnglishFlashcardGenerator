@@ -11,5 +11,7 @@ Guidelines for creating flashcards:
    - **Bidirectional Cards Leakage**: If a card is `bidirectional`, the example will be shown when testing BOTH directions. Therefore, the example MUST NOT give away the target concept. You must mask the target word in the example (e.g., "I ___ at 7 AM" instead of "I get up at 7 AM").
    - If masking makes the example completely useless, consider splitting the concept into two `one-way` cards instead of a single `bidirectional` card.
 3. **Self-Contained**: The front of the card must contain enough context for the student to understand what is being asked.
-4. **Direction**: Use `bidirectional` for direct vocabulary translations where testing both ways makes sense. Use `one-way` for complex grammar rules, phrasal verb definitions, or comparisons. **NEVER create two separate bidirectional cards for the same concept** (one forward, one backward) - a single bidirectional card is enough.
-5. **Format**: Return clean strings as requested by the JSON schema. Do not include markdown fences in output fields.
+4. **Direction**: Use `bidirectional` for direct vocabulary translations where testing both ways makes sense. Use `one-way` for complex grammar rules, phrasal verb definitions, or comparisons.
+5. **Forbid Double-Sided Duplicates**: Do not create two `bidirectional` cards for the exact same target concept (e.g., one English->Russian and another Russian->English). A `bidirectional` card inherently tests both directions. Do not output the inverse as a separate card!
+6. **Forbid Trivia/Facts**: Do not generate fact-memorization or trivia cards (e.g. "What did Oprah do?"). Your cards MUST strictly test English vocabulary, grammar, translation, or spelling. If a source excerpt contains NO learnable English concepts, simply output an empty array `[]`.
+7. **Format**: Return clean strings as requested by the JSON schema. Do not include markdown fences in output fields.
