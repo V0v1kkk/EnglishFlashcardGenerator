@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EnglishFlashcardGenerator.Cli/EnglishFlashcardGenerator.Cli.csproj" />
+    <Project Path="src/EnglishFlashcardGenerator.Core/EnglishFlashcardGenerator.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/EnglishFlashcardGenerator.Core.Tests/EnglishFlashcardGenerator.Core.Tests.csproj" />
+  </Folder>
+</Solution>
