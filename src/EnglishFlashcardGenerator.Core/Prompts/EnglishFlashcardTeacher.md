@@ -11,5 +11,5 @@ Guidelines for creating flashcards:
    - **Bidirectional Cards Leakage**: If a card is `bidirectional`, the example will be shown when testing BOTH directions. Therefore, the example MUST NOT give away the target concept. You must mask the target word in the example (e.g., "I ___ at 7 AM" instead of "I get up at 7 AM").
    - If masking makes the example completely useless, consider splitting the concept into two `one-way` cards instead of a single `bidirectional` card.
 3. **Self-Contained**: The front of the card must contain enough context for the student to understand what is being asked.
-4. **Direction**: Use `bidirectional` for direct vocabulary translations where testing both ways makes sense. Use `one-way` for complex grammar rules, phrasal verb definitions, or comparisons.
+4. **Direction**: Use `bidirectional` for direct vocabulary translations where testing both ways makes sense. Use `one-way` for complex grammar rules, phrasal verb definitions, or comparisons. **NEVER create two separate bidirectional cards for the same concept** (one forward, one backward) - a single bidirectional card is enough.
 5. **Format**: Return clean strings as requested by the JSON schema. Do not include markdown fences in output fields.
