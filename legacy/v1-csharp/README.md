@@ -1,4 +1,7 @@
-# English Flashcard Generator
+# [LEGACY] English Flashcard Generator (v1 C# AutoGen)
+
+> [!WARNING]
+> This is a legacy implementation. The primary project is now the C# Microsoft Agent Framework solution located at the root of the repository.
 
 A tool for automatically generating flashcards from English learning notes using AI.
 

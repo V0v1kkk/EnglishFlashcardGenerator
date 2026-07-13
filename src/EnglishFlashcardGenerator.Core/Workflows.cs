@@ -160,11 +160,11 @@ public static class CSharpMafWorkflowFactory
         var teacher = BindAsync<TeacherRequest, TeacherDraft>("teacher-agent", async (request, ct) =>
         {
             var dto = await agents.GenerateCardsAsync(request, ct).ConfigureAwait(false);
-            var cards = dto.Cards.Select(card => new Flashcard(
-                card.Front,
-                card.Back,
+            var cards = (dto.Cards ?? Array.Empty<TeacherCardDto>()).Select(card => new Flashcard(
+                card.Front ?? "",
+                card.Back ?? "",
                 string.IsNullOrWhiteSpace(card.Example) ? null : card.Example,
-                card.Direction.Equals("bidirectional", StringComparison.OrdinalIgnoreCase) ? CardDirection.Bidirectional : CardDirection.OneWay,
+                string.Equals(card.Direction, "bidirectional", StringComparison.OrdinalIgnoreCase) ? CardDirection.Bidirectional : CardDirection.OneWay,
                 request.Group.GroupIndex)).ToArray();
             return new TeacherDraft(request.Day, request.Group, request.Iteration, cards, request.Options, []);
         });
@@ -177,10 +177,10 @@ public static class CSharpMafWorkflowFactory
         var critic = BindAsync<TeacherDraft, CriticReview>("critic-agent", async (draft, ct) =>
         {
             var dto = await agents.ReviewCardsAsync(draft, ct).ConfigureAwait(false);
-            var verdict = dto.Verdict.Equals("approved", StringComparison.OrdinalIgnoreCase)
+            var verdict = string.Equals(dto.Verdict, "approved", StringComparison.OrdinalIgnoreCase)
                 ? CriticVerdict.Approved
-                : dto.Verdict.Equals("rejected", StringComparison.OrdinalIgnoreCase) ? CriticVerdict.Rejected : CriticVerdict.NeedsRevision;
-            var feedback = string.Join("\n", new[] { dto.Feedback }.Concat(dto.Findings.Select(f => $"{f.CardFront}: {f.Issue}; {f.Recommendation}")));
+                : string.Equals(dto.Verdict, "rejected", StringComparison.OrdinalIgnoreCase) ? CriticVerdict.Rejected : CriticVerdict.NeedsRevision;
+            var feedback = string.Join("\n", new[] { dto.Feedback ?? "" }.Concat((dto.Findings ?? Array.Empty<CriticFindingDto>()).Select(f => $"{f.CardFront}: {f.Issue}; {f.Recommendation}")));
             return new CriticReview(draft.Day, draft.Group, draft, verdict, feedback, draft.Warnings);
         });
         var decide = Bind<CriticReview, RevisionDecision>("decide-revision", review =>

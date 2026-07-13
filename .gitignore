@@ -38,6 +38,9 @@ appsettings.Production.json
 appsettings.*.json
 !appsettings.template.json
 
+# Local secrets
+local-secrets.env
+
 # Logs
 logs/
 *.log
