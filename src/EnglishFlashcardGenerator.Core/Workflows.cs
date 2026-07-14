@@ -68,9 +68,10 @@ public static class CSharpMafWorkflowFactory
                     g.SourceOrder)).ToArray();
                 return new GroupPlan(request.Day, groups, request.Options);
             }
-            catch (AgentBoundaryException ex)
+            catch (Exception ex)
             {
-                logger.LogWarning(ex, "Agent provider failed to plan groups for day '{Heading}', likely due to content policies.", request.Day.Heading);
+                if (ct.IsCancellationRequested) throw;
+                logger.LogWarning(ex, "Agent provider failed to plan groups for day '{Heading}'.", request.Day.Heading);
                 return new GroupPlan(request.Day, [], request.Options);
             }
         });
@@ -181,9 +182,10 @@ public static class CSharpMafWorkflowFactory
                     request.Group.GroupIndex)).ToArray();
                 return new TeacherDraft(request.Day, request.Group, request.Iteration, cards, request.Options, []);
             }
-            catch (AgentBoundaryException ex)
+            catch (Exception ex)
             {
-                logger.LogWarning(ex, "Agent provider failed to generate cards for group '{Group}', likely due to content policies.", request.Group.Title);
+                if (ct.IsCancellationRequested) throw;
+                logger.LogWarning(ex, "Agent provider failed to generate cards for group '{Group}'.", request.Group.Title);
                 return new TeacherDraft(request.Day, request.Group, request.Iteration, [], request.Options, [$"Teacher agent failed: {ex.Message}"]);
             }
         });
@@ -204,9 +206,10 @@ public static class CSharpMafWorkflowFactory
                 var feedback = string.Join("\n", new[] { dto.Feedback ?? "" }.Concat((dto.Findings ?? Array.Empty<CriticFindingDto>()).Select(f => $"{f.CardFront}: {f.Issue}; {f.Recommendation}")));
                 return new CriticReview(draft.Day, draft.Group, draft, verdict, feedback, draft.Warnings);
             }
-            catch (AgentBoundaryException ex)
+            catch (Exception ex)
             {
-                logger.LogWarning(ex, "Agent provider failed to review cards for group '{Group}', likely due to content policies.", draft.Group.Title);
+                if (ct.IsCancellationRequested) throw;
+                logger.LogWarning(ex, "Agent provider failed to review cards for group '{Group}'.", draft.Group.Title);
                 return new CriticReview(draft.Day, draft.Group, draft, CriticVerdict.Approved, "Provider failed to review; defaulting to approved to save generated cards.", [$"Critic provider failed: {ex.Message}"]);
             }
         });
