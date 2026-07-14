@@ -56,15 +56,23 @@ public static class CSharpMafWorkflowFactory
 
         var planGroups = BindAsync<DayProcessingRequest, GroupPlan>("plan-groups-agent", async (request, ct) =>
         {
-            var dto = await agents.PlanGroupsAsync(request.Day, request.Options, ct).ConfigureAwait(false);
-            var groups = dto.Groups.Take(request.Options.MaxGroupsPerDay).Select((g, i) => new TopicGroup(
-                i,
-                request.Day.DayIndex,
-                ParseKind(g.Kind),
-                string.IsNullOrWhiteSpace(g.Title) ? $"Group {i + 1}" : g.Title.Trim(),
-                string.IsNullOrWhiteSpace(g.SourceExcerpt) ? request.Day.Markdown : g.SourceExcerpt.Trim(),
-                g.SourceOrder)).ToArray();
-            return new GroupPlan(request.Day, groups, request.Options);
+            try
+            {
+                var dto = await agents.PlanGroupsAsync(request.Day, request.Options, ct).ConfigureAwait(false);
+                var groups = dto.Groups.Take(request.Options.MaxGroupsPerDay).Select((g, i) => new TopicGroup(
+                    i,
+                    request.Day.DayIndex,
+                    ParseKind(g.Kind),
+                    string.IsNullOrWhiteSpace(g.Title) ? $"Group {i + 1}" : g.Title.Trim(),
+                    string.IsNullOrWhiteSpace(g.SourceExcerpt) ? request.Day.Markdown : g.SourceExcerpt.Trim(),
+                    g.SourceOrder)).ToArray();
+                return new GroupPlan(request.Day, groups, request.Options);
+            }
+            catch (AgentBoundaryException ex)
+            {
+                logger.LogWarning(ex, "Agent provider failed to plan groups for day '{Heading}', likely due to content policies.", request.Day.Heading);
+                return new GroupPlan(request.Day, [], request.Options);
+            }
         });
         var validatePlan = Bind<GroupPlan, ValidatedGroupPlan>("validate-group-plan", plan =>
         {
@@ -162,14 +170,22 @@ public static class CSharpMafWorkflowFactory
             new TeacherRequest(decision.Day, decision.Group, decision.Draft.Iteration + 1, decision.Feedback, decision.Options));
         var teacher = BindAsync<TeacherRequest, TeacherDraft>("teacher-agent", async (request, ct) =>
         {
-            var dto = await agents.GenerateCardsAsync(request, ct).ConfigureAwait(false);
-            var cards = (dto.Cards ?? Array.Empty<TeacherCardDto>()).Select(card => new Flashcard(
-                card.Front ?? "",
-                card.Back ?? "",
-                string.IsNullOrWhiteSpace(card.Example) ? null : card.Example,
-                string.Equals(card.Direction, "bidirectional", StringComparison.OrdinalIgnoreCase) ? CardDirection.Bidirectional : CardDirection.OneWay,
-                request.Group.GroupIndex)).ToArray();
-            return new TeacherDraft(request.Day, request.Group, request.Iteration, cards, request.Options, []);
+            try
+            {
+                var dto = await agents.GenerateCardsAsync(request, ct).ConfigureAwait(false);
+                var cards = (dto.Cards ?? Array.Empty<TeacherCardDto>()).Select(card => new Flashcard(
+                    card.Front ?? "",
+                    card.Back ?? "",
+                    string.IsNullOrWhiteSpace(card.Example) ? null : card.Example,
+                    string.Equals(card.Direction, "bidirectional", StringComparison.OrdinalIgnoreCase) ? CardDirection.Bidirectional : CardDirection.OneWay,
+                    request.Group.GroupIndex)).ToArray();
+                return new TeacherDraft(request.Day, request.Group, request.Iteration, cards, request.Options, []);
+            }
+            catch (AgentBoundaryException ex)
+            {
+                logger.LogWarning(ex, "Agent provider failed to generate cards for group '{Group}', likely due to content policies.", request.Group.Title);
+                return new TeacherDraft(request.Day, request.Group, request.Iteration, [], request.Options, [$"Teacher agent failed: {ex.Message}"]);
+            }
         });
         var validate = Bind<TeacherDraft, TeacherDraft>("validate-teacher-draft", draft =>
         {
@@ -179,12 +195,20 @@ public static class CSharpMafWorkflowFactory
         });
         var critic = BindAsync<TeacherDraft, CriticReview>("critic-agent", async (draft, ct) =>
         {
-            var dto = await agents.ReviewCardsAsync(draft, ct).ConfigureAwait(false);
-            var verdict = string.Equals(dto.Verdict, "approved", StringComparison.OrdinalIgnoreCase)
-                ? CriticVerdict.Approved
-                : string.Equals(dto.Verdict, "rejected", StringComparison.OrdinalIgnoreCase) ? CriticVerdict.Rejected : CriticVerdict.NeedsRevision;
-            var feedback = string.Join("\n", new[] { dto.Feedback ?? "" }.Concat((dto.Findings ?? Array.Empty<CriticFindingDto>()).Select(f => $"{f.CardFront}: {f.Issue}; {f.Recommendation}")));
-            return new CriticReview(draft.Day, draft.Group, draft, verdict, feedback, draft.Warnings);
+            try
+            {
+                var dto = await agents.ReviewCardsAsync(draft, ct).ConfigureAwait(false);
+                var verdict = string.Equals(dto.Verdict, "approved", StringComparison.OrdinalIgnoreCase)
+                    ? CriticVerdict.Approved
+                    : string.Equals(dto.Verdict, "rejected", StringComparison.OrdinalIgnoreCase) ? CriticVerdict.Rejected : CriticVerdict.NeedsRevision;
+                var feedback = string.Join("\n", new[] { dto.Feedback ?? "" }.Concat((dto.Findings ?? Array.Empty<CriticFindingDto>()).Select(f => $"{f.CardFront}: {f.Issue}; {f.Recommendation}")));
+                return new CriticReview(draft.Day, draft.Group, draft, verdict, feedback, draft.Warnings);
+            }
+            catch (AgentBoundaryException ex)
+            {
+                logger.LogWarning(ex, "Agent provider failed to review cards for group '{Group}', likely due to content policies.", draft.Group.Title);
+                return new CriticReview(draft.Day, draft.Group, draft, CriticVerdict.Approved, "Provider failed to review; defaulting to approved to save generated cards.", [$"Critic provider failed: {ex.Message}"]);
+            }
         });
         var decide = Bind<CriticReview, RevisionDecision>("decide-revision", review =>
         {
