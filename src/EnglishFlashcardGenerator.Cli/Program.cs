@@ -53,7 +53,7 @@ if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(apiKey) || s
 var temperature = double.TryParse(Environment.GetEnvironmentVariable("LITELLM_TEMPERATURE"), out var temp) ? temp : 0;
 var maxTokens = int.TryParse(Environment.GetEnvironmentVariable("LITELLM_MAX_OUTPUT_TOKENS"), out var mt) ? mt : (int?)null;
 var networkTimeout = OptionalSecondsEnvironment("LITELLM_NETWORK_TIMEOUT_SECONDS") ?? TimeSpan.FromSeconds(600);
-var maxNetworkRetries = OptionalNonNegativeEnvironment("LITELLM_MAX_NETWORK_RETRIES") ?? 0;
+var maxNetworkRetries = OptionalNonNegativeEnvironment("LITELLM_MAX_NETWORK_RETRIES") ?? 5;
 var request = new NoteProcessingRequest(source, cardsOut, sourceOut, apply, maxDays, workers, iterations, maxGroups);
 
 using var loggerFactory = LoggerFactory.Create(builder =>
