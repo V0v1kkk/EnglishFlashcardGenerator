@@ -41,19 +41,19 @@ var iterations = int.TryParse(Option(args, "--max-critic-iterations"), out var i
 var maxGroups = int.TryParse(Option(args, "--max-groups-per-day"), out var mg) ? mg : 4;
 var apply = args.Contains("--apply");
 
-var baseUrl = Environment.GetEnvironmentVariable("LITELLM_BASE_URL");
-var apiKey = Environment.GetEnvironmentVariable("LITELLM_API_KEY");
-var model = Environment.GetEnvironmentVariable("LITELLM_MODEL");
+var baseUrl = Environment.GetEnvironmentVariable("LLM_BASE_URL");
+var apiKey = Environment.GetEnvironmentVariable("LLM_API_KEY");
+var model = Environment.GetEnvironmentVariable("LLM_MODEL");
 if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(apiKey) || string.IsNullOrWhiteSpace(model))
 {
-    Console.Error.WriteLine("Live MAF workflow requires LITELLM_BASE_URL, LITELLM_API_KEY, and LITELLM_MODEL. Deterministic test stubs are available only in tests, not product mode.");
+    Console.Error.WriteLine("Live MAF workflow requires LLM_BASE_URL, LLM_API_KEY, and LLM_MODEL. Deterministic test stubs are available only in tests, not product mode.");
     return 3;
 }
 
-var temperature = double.TryParse(Environment.GetEnvironmentVariable("LITELLM_TEMPERATURE"), out var temp) ? temp : 0;
-var maxTokens = int.TryParse(Environment.GetEnvironmentVariable("LITELLM_MAX_OUTPUT_TOKENS"), out var mt) ? mt : (int?)null;
-var networkTimeout = OptionalSecondsEnvironment("LITELLM_NETWORK_TIMEOUT_SECONDS") ?? TimeSpan.FromSeconds(600);
-var maxNetworkRetries = OptionalNonNegativeEnvironment("LITELLM_MAX_NETWORK_RETRIES") ?? 5;
+var temperature = double.TryParse(Environment.GetEnvironmentVariable("LLM_TEMPERATURE"), out var temp) ? temp : 0;
+var maxTokens = int.TryParse(Environment.GetEnvironmentVariable("LLM_MAX_OUTPUT_TOKENS"), out var mt) ? mt : (int?)null;
+var networkTimeout = OptionalSecondsEnvironment("LLM_NETWORK_TIMEOUT_SECONDS") ?? TimeSpan.FromSeconds(600);
+var maxNetworkRetries = OptionalNonNegativeEnvironment("LLM_MAX_NETWORK_RETRIES") ?? 5;
 var request = new NoteProcessingRequest(source, cardsOut, sourceOut, apply, maxDays, workers, iterations, maxGroups);
 
 using var loggerFactory = LoggerFactory.Create(builder =>
