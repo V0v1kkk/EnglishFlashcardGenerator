@@ -3,6 +3,7 @@ using EnglishFlashcardGenerator.Core.Agents;
 using EnglishFlashcardGenerator.Core.Markdown;
 using EnglishFlashcardGenerator.Core.Output;
 using System.Text.Json;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace EnglishFlashcardGenerator.Core.Tests;
@@ -128,7 +129,7 @@ public class WorkflowTests
     {
         var group = new TopicGroup(0, 0, TopicGroupKind.Vocabulary, "look up", "**look up** - to search", 0);
         var request = Request(Path.GetTempPath());
-        var workflow = CSharpMafWorkflowFactory.BuildGroupCardWorkflow(new StubAgentPort());
+        var workflow = CSharpMafWorkflowFactory.BuildGroupCardWorkflow(new StubAgentPort(), NullLogger.Instance);
 
         var result = await WorkflowRunner.RunAsync<GroupResult>(workflow, new GroupCardRequest(Day, group, request), TestContext.Current.CancellationToken);
 
@@ -142,7 +143,7 @@ public class WorkflowTests
     {
         var request = Request(Path.GetTempPath());
         var plan = new WorkerPartitionPlan(Day, [new WorkerBatch(0, [])], request, []);
-        var workflow = CSharpMafWorkflowFactory.BuildGroupWorkerWorkflow(0, new StubAgentPort());
+        var workflow = CSharpMafWorkflowFactory.BuildGroupWorkerWorkflow(0, new StubAgentPort(), NullLogger.Instance);
 
         var result = await WorkflowRunner.RunAsync<WorkerBatchResult>(workflow, plan, TestContext.Current.CancellationToken);
 
@@ -156,7 +157,7 @@ public class WorkflowTests
     {
         var root = Path.Combine(Path.GetTempPath(), "efg-csharp-v2", Guid.NewGuid().ToString("N"));
         var request = Request(root);
-        var workflow = CSharpMafWorkflowFactory.BuildDayWorkflow(new StubAgentPort(), workerCount: 2);
+        var workflow = CSharpMafWorkflowFactory.BuildDayWorkflow(new StubAgentPort(), 2, NullLogger.Instance);
 
         var result = await WorkflowRunner.RunAsync<DayResult>(workflow, new DayProcessingRequest(Day, request), TestContext.Current.CancellationToken);
 
@@ -170,7 +171,7 @@ public class WorkflowTests
     {
         var root = Path.Combine(Path.GetTempPath(), "efg-csharp-v2", Guid.NewGuid().ToString("N"));
         var request = Request(root, apply: true);
-        var workflow = CSharpMafWorkflowFactory.BuildDayWorkflow(new StubAgentPort(), workerCount: 2);
+        var workflow = CSharpMafWorkflowFactory.BuildDayWorkflow(new StubAgentPort(), 2, NullLogger.Instance);
 
         var result = await WorkflowRunner.RunAsync<DayResult>(workflow, new DayProcessingRequest(Day, request), TestContext.Current.CancellationToken);
         var excerpt = await File.ReadAllTextAsync(result.OutputFiles[1], TestContext.Current.CancellationToken);
@@ -194,7 +195,7 @@ public class WorkflowTests
 ## [[2025-03-27-Thursday]]
 **at** - used for specific times
 """, TestContext.Current.CancellationToken);
-        var workflow = CSharpMafWorkflowFactory.BuildNoteWorkflow(new StubAgentPort());
+        var workflow = CSharpMafWorkflowFactory.BuildNoteWorkflow(new StubAgentPort(), NullLogger.Instance);
 
         var summary = await WorkflowRunner.RunAsync<RunSummary>(workflow, request, TestContext.Current.CancellationToken);
 
@@ -204,24 +205,20 @@ public class WorkflowTests
     }
 
     [Fact]
-    public async Task WorkflowRunner_surfaces_executor_failure_and_agent_boundary_context()
+    public async Task WorkflowRunner_surfaces_executor_failure_as_warnings()
     {
         var group = new TopicGroup(0, 0, TopicGroupKind.Vocabulary, "look up", "**look up** - to search", 0);
         var request = Request(Path.GetTempPath());
-        var workflow = CSharpMafWorkflowFactory.BuildGroupCardWorkflow(new FailingTeacherAgentPort());
+        var workflow = CSharpMafWorkflowFactory.BuildGroupCardWorkflow(new FailingTeacherAgentPort(), NullLogger.Instance);
 
-        var ex = await Assert.ThrowsAsync<WorkflowExecutionException>(async () =>
-            await WorkflowRunner.RunAsync<GroupResult>(workflow, new GroupCardRequest(Day, group, request), TestContext.Current.CancellationToken));
+        var result = await WorkflowRunner.RunAsync<GroupResult>(workflow, new GroupCardRequest(Day, group, request), TestContext.Current.CancellationToken);
 
-        Assert.Contains("GroupResult", ex.Message);
-        Assert.Contains("teacher-agent", ex.Message);
-        Assert.Contains("AgentBoundaryException", ex.Message);
-        Assert.Contains("EnglishFlashcardTeacher", ex.Message);
-        Assert.IsType<AgentBoundaryException>(ex.InnerException);
+        Assert.Empty(result.Cards);
+        Assert.Contains(result.Warnings, w => w.Contains("Teacher agent failed"));
     }
 
     [Fact]
-    public async Task NoteWorkflow_surfaces_nested_workflow_failure_instead_of_missing_summary()
+    public async Task NoteWorkflow_surfaces_nested_workflow_failure_as_warnings()
     {
         var root = Path.Combine(Path.GetTempPath(), "efg-csharp-v2", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -232,22 +229,12 @@ public class WorkflowTests
 ## [[2025-03-28-Friday|28.03.2025]]
 **look up** - to search for information
 """, TestContext.Current.CancellationToken);
-        var workflow = CSharpMafWorkflowFactory.BuildNoteWorkflow(new FailingTeacherAgentPort());
+        var workflow = CSharpMafWorkflowFactory.BuildNoteWorkflow(new FailingTeacherAgentPort(), NullLogger.Instance);
 
-        var ex = await Assert.ThrowsAsync<WorkflowExecutionException>(async () =>
-            await WorkflowRunner.RunAsync<RunSummary>(workflow, request, TestContext.Current.CancellationToken));
+        var summary = await WorkflowRunner.RunAsync<RunSummary>(workflow, request, TestContext.Current.CancellationToken);
 
-        Assert.Contains("RunSummary", ex.Message);
-        Assert.Contains("process-days-sequentially", ex.Message);
-        Assert.Contains("WorkflowExecutionException", ex.Message);
-        Assert.Contains("AgentBoundaryException", ex.Message);
-        Assert.Contains("EnglishFlashcardTeacher", ex.Message);
-        Assert.DoesNotContain("completed without a RunSummary output", ex.Message);
-        var innerExceptions = EnumerateInnerExceptions(ex).ToArray();
-        Assert.Contains(innerExceptions, e => e is WorkflowExecutionException);
-        Assert.Contains(innerExceptions, e => e is AgentBoundaryException boundary &&
-            boundary.AgentName == "EnglishFlashcardTeacher" &&
-            boundary.OutputType == typeof(TeacherOutputDto));
+        Assert.Equal(0, summary.CardsWritten);
+        Assert.Contains(summary.Warnings, w => w.Contains("Teacher agent failed"));
     }
 
     [Fact]

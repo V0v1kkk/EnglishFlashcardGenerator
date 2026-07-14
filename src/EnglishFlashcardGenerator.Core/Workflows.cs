@@ -153,7 +153,8 @@ public static class CSharpMafWorkflowFactory
                 results.Add(await WorkflowRunner.RunAsync<GroupResult>(workflow, new GroupCardRequest(request.Day, group, request.Options), ct).ConfigureAwait(false));
             }
 
-            return new WorkerBatchResult(workerIndex, request.Options.MaxParallelGroupWorkers, request.Day, request.Options, results, request.Warnings);
+            var allWarnings = request.Warnings.Concat(results.SelectMany(r => r.Warnings)).ToArray();
+            return new WorkerBatchResult(workerIndex, request.Options.MaxParallelGroupWorkers, request.Day, request.Options, results, allWarnings);
         });
 
         return new WorkflowBuilder(select)
