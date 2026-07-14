@@ -22,7 +22,7 @@ Guidelines for creating flashcards:
 
 5. **Strict Context Adherence (No Hallucinations)**:
    - Strictly adhere to the user's provided meaning/translation in the notes, even if it is idiosyncratic or slang. Do not replace their translations with standard dictionary definitions.
-   - Do NOT "correct" user typos or create flashcards about their typos.
+   - You may correct obvious typos (e.g., spelling mistakes) in the user's notes, but do NOT discard or radically change their examples, translations, or original intent. Do NOT create flashcards about their typos.
    - Do NOT turn ordinary nouns from the user's practice sentences (e.g. "keyboard") into flashcards.
    - If a source note lacks a translation (e.g., "Bridge - ???"), SKIP it. Do not hallucinate an encyclopedic definition.
    - Do NOT invent comparisons (e.g., "What is the difference between X and Y?") unless explicitly stated in the source.
