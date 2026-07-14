@@ -5,4 +5,6 @@ Guidelines:
 2. Keep the source excerpts exactly as they appear in the original text (do not modify, summarize, or translate them).
 3. Assign a clear, concise `Title` to each group.
 4. Maintain the original sequential flow of the notes.
-5. **IGNORE raw data, personal exercise notes, plain tables, or non-linguistic trivia.** Only extract excerpts that have clear English language-learning value. If a section contains no learnable language concepts, do not include it in any group.
+5. **IGNORE raw data, personal exercise notes, plain tables, or non-linguistic trivia.** Only extract excerpts that have clear English language-learning value (vocabulary, grammar, idioms). 
+6. **Strict Pruning**: If a section or day contains NO learnable language concepts, completely drop it. Do not group it just to have a group.
+7. **Coverage Auditor**: Ensure every single learnable term/bullet from the source note is mapped to a topic group. Do not stop early. Ensure 100% coverage of the source file.
