@@ -22,7 +22,7 @@ static int? OptionalNonNegativeEnvironment(string name)
 
 if (args.Length == 0 || args.Contains("--help"))
 {
-    Console.WriteLine("english-flashcards process --source <path> --cards-out <dir> --source-notes-out <dir> [--max-days 1] [--max-groups-per-day 4] [--group-workers 2] [--max-critic-iterations 2] [--apply]");
+    Console.WriteLine("english-flashcards process --source <path> --cards-out <dir> --source-notes-out <dir> [--max-days 1] [--max-groups-per-day 4] [--group-workers 2] [--max-critic-iterations 2] [--apply] [--prune-source]");
     return 0;
 }
 
@@ -40,6 +40,7 @@ var workers = int.TryParse(Option(args, "--group-workers"), out var gw) ? gw : 2
 var iterations = int.TryParse(Option(args, "--max-critic-iterations"), out var it) ? it : 2;
 var maxGroups = int.TryParse(Option(args, "--max-groups-per-day"), out var mg) ? mg : 4;
 var apply = args.Contains("--apply");
+var pruneSource = args.Contains("--prune-source");
 
 var baseUrl = Environment.GetEnvironmentVariable("LLM_BASE_URL");
 var apiKey = Environment.GetEnvironmentVariable("LLM_API_KEY");
@@ -54,7 +55,7 @@ var temperature = double.TryParse(Environment.GetEnvironmentVariable("LLM_TEMPER
 var maxTokens = int.TryParse(Environment.GetEnvironmentVariable("LLM_MAX_OUTPUT_TOKENS"), out var mt) ? mt : (int?)null;
 var networkTimeout = OptionalSecondsEnvironment("LLM_NETWORK_TIMEOUT_SECONDS") ?? TimeSpan.FromSeconds(600);
 var maxNetworkRetries = OptionalNonNegativeEnvironment("LLM_MAX_NETWORK_RETRIES") ?? 5;
-var request = new NoteProcessingRequest(source, cardsOut, sourceOut, apply, maxDays, workers, iterations, maxGroups);
+var request = new NoteProcessingRequest(source, cardsOut, sourceOut, apply, maxDays, workers, iterations, maxGroups, pruneSource);
 
 using var loggerFactory = LoggerFactory.Create(builder =>
 {

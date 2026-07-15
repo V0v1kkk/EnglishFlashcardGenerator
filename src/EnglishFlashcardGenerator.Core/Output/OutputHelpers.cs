@@ -44,9 +44,41 @@ public static class OutputPathBuilder
     public static DayWritePlan Build(DayOutputDraft draft)
     {
         var date = draft.Day.Date?.ToString("yyyy-MM-dd") ?? $"day-{draft.Day.DayIndex + 1}";
+        var creationTime = DateTime.Now.ToString("yyyy-MM-ddTHH:mm:ss");
+        
         var cardsPath = Path.Combine(draft.Options.CardsOutputDirectory, $"EnglishFlashcards-{date}.md");
-        var sourcePath = Path.Combine(draft.Options.SourceExcerptOutputDirectory, $"EnglishLearningSourceExcerpt-{date}.md");
-        return new DayWritePlan(draft.Day, cardsPath, ObsidianSrFormatter.FormatCards(draft.Cards), sourcePath, draft.DailySourceExcerptMarkdown, draft.Options.Apply, draft.Warnings);
+        var sourcePath = Path.Combine(draft.Options.SourceExcerptOutputDirectory, $"EnglishLearningNote-{date}.md");
+
+        var cardsMarkdown = $"""
+---
+tags:
+  - english
+  - english-flashcard
+creationTime: {creationTime}
+---
+References: [[EnglishLearningNote-{date}]]
+
+#flashcards/{date}
+
+{ObsidianSrFormatter.FormatCards(draft.Cards)}
+""";
+        
+        var lines = draft.DailySourceExcerptMarkdown.Split('\n');
+        var body = lines.Length > 1 ? string.Join('\n', lines.Skip(1)).TrimStart() : string.Empty;
+
+        var sourceMarkdown = $"""
+---
+tags:
+  - english
+  - english-learning-note
+creationTime: {creationTime}
+---
+References: [[English Learning notes]], [[{draft.Day.Heading}]]
+
+{body}
+""";
+
+        return new DayWritePlan(draft.Day, cardsPath, cardsMarkdown, draft.Cards.Count, sourcePath, sourceMarkdown, draft.Options.Apply, draft.Warnings);
     }
 }
 
@@ -60,7 +92,7 @@ public static class AtomicMarkdownWriter
             WriteAtomically(plan.SourceExcerptPath, plan.SourceExcerptMarkdown);
         }
 
-        return new DayResult(plan.Day, true, CountCards(plan.CardsMarkdown), [plan.CardsPath, plan.SourceExcerptPath], plan.Warnings);
+        return new DayResult(plan.Day, true, plan.CardsCount, [plan.CardsPath, plan.SourceExcerptPath], plan.Warnings);
     }
 
     private static void WriteAtomically(string path, string content)
@@ -71,5 +103,4 @@ public static class AtomicMarkdownWriter
         File.Move(temp, path, overwrite: true);
     }
 
-    private static int CountCards(string markdown) => markdown.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Length;
 }

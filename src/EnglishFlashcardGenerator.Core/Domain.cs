@@ -8,7 +8,8 @@ public sealed record NoteProcessingRequest(
     int? MaxDays,
     int MaxParallelGroupWorkers,
     int MaxCriticIterations,
-    int MaxGroupsPerDay = 4);
+    int MaxGroupsPerDay = 4,
+    bool PruneSource = false);
 
 public sealed record MarkdownSource(string SourcePath, string Markdown, NoteProcessingRequest Options);
 public sealed record DayChunk(int DayIndex, DateOnly? Date, string Heading, string Markdown);
@@ -30,7 +31,7 @@ public sealed record WorkerBatchRequest(DayChunk Day, WorkerBatch Batch, NotePro
 public sealed record WorkerBatchResult(int WorkerIndex, int ExpectedWorkers, DayChunk Day, NoteProcessingRequest Options, IReadOnlyList<GroupResult> Groups, IReadOnlyList<string> Warnings);
 public sealed record MergedGroupResults(DayChunk Day, IReadOnlyList<GroupResult> Groups, IReadOnlyList<Flashcard> Cards, NoteProcessingRequest Options, IReadOnlyList<string> Warnings);
 public sealed record DayOutputDraft(DayChunk Day, IReadOnlyList<Flashcard> Cards, string DailySourceExcerptMarkdown, NoteProcessingRequest Options, IReadOnlyList<string> Warnings);
-public sealed record DayWritePlan(DayChunk Day, string CardsPath, string CardsMarkdown, string SourceExcerptPath, string SourceExcerptMarkdown, bool Apply, IReadOnlyList<string> Warnings);
+public sealed record DayWritePlan(DayChunk Day, string CardsPath, string CardsMarkdown, int CardsCount, string SourceExcerptPath, string SourceExcerptMarkdown, bool Apply, IReadOnlyList<string> Warnings);
 public sealed record DayResult(DayChunk Day, bool Succeeded, int CardsCount, IReadOnlyList<string> OutputFiles, IReadOnlyList<string> Warnings);
 
 public enum CardDirection { OneWay, Bidirectional }

@@ -30,6 +30,25 @@ public static class CSharpMafWorkflowFactory
 
             return new ProcessedDays(results, selected.Options);
         });
+        var prune = Bind<ProcessedDays, ProcessedDays>("prune-source-note", processed =>
+        {
+            if (processed.Options.Apply && processed.Options.PruneSource)
+            {
+                var successfulDays = processed.Results.Where(r => r.Succeeded).Select(r => r.Day).ToArray();
+                if (successfulDays.Length > 0)
+                {
+                    var original = File.ReadAllText(processed.Options.SourcePath);
+                    var newMarkdown = MarkdownDaySplitter.PruneSuccessfulDays(original, successfulDays);
+                    if (newMarkdown != original)
+                    {
+                        var temp = processed.Options.SourcePath + ".tmp";
+                        File.WriteAllText(temp, newMarkdown);
+                        File.Move(temp, processed.Options.SourcePath, overwrite: true);
+                    }
+                }
+            }
+            return processed;
+        });
         var summary = Bind<ProcessedDays, RunSummary>("build-run-summary", processed =>
             new RunSummary(
                 processed.Results.Count,
@@ -45,7 +64,8 @@ public static class CSharpMafWorkflowFactory
             .AddEdge(read, split)
             .AddEdge(split, select)
             .AddEdge(select, processDays)
-            .AddEdge(processDays, summary)
+            .AddEdge(processDays, prune)
+            .AddEdge(prune, summary)
             .WithOutputFrom(summary)
             .Build();
     }

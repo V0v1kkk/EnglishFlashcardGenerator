@@ -47,6 +47,63 @@ public static partial class MarkdownDaySplitter
         chunks.Add(new DayChunk(index, TryParseDate(heading), heading, markdown.TrimEnd()));
     }
 
+    public static string PruneSuccessfulDays(string markdown, IReadOnlyList<DayChunk> successfulDays)
+    {
+        var normalized = markdown.Replace("\r\n", "\n").Replace('\r', '\n');
+        var lines = normalized.Split('\n');
+        var remainingLines = new List<string>();
+        
+        var start = -1;
+        var heading = string.Empty;
+        var inFence = false;
+        
+        var successfulDates = new HashSet<DateOnly>(successfulDays.Select(d => d.Date!.Value));
+
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var line = lines[i];
+            if (line.TrimStart().StartsWith("```", StringComparison.Ordinal))
+            {
+                inFence = !inFence;
+            }
+
+            if (!inFence && line.StartsWith("## ", StringComparison.Ordinal))
+            {
+                if (start >= 0)
+                {
+                    var chunkDate = TryParseDate(heading);
+                    if (chunkDate == null || !successfulDates.Contains(chunkDate.Value))
+                    {
+                        remainingLines.AddRange(lines[start..i]);
+                    }
+                }
+                else
+                {
+                    remainingLines.AddRange(lines[0..i]);
+                }
+
+                start = i;
+                heading = line[3..].Trim();
+            }
+        }
+
+        if (start >= 0)
+        {
+            var chunkDate = TryParseDate(heading);
+            if (chunkDate == null || !successfulDates.Contains(chunkDate.Value))
+            {
+                remainingLines.AddRange(lines[start..]);
+            }
+        }
+        else
+        {
+            return markdown;
+        }
+
+        var result = string.Join('\n', remainingLines).TrimEnd();
+        return Regex.Replace(result, @"\n{3,}", "\n\n") + "\n";
+    }
+
     public static DateOnly? TryParseDate(string heading)
     {
         var candidates = DatePattern().Matches(heading).Select(m => m.Value);

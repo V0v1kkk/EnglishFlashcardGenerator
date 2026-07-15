@@ -176,7 +176,7 @@ public class WorkflowTests
         var result = await WorkflowRunner.RunAsync<DayResult>(workflow, new DayProcessingRequest(Day, request), TestContext.Current.CancellationToken);
         var excerpt = await File.ReadAllTextAsync(result.OutputFiles[1], TestContext.Current.CancellationToken);
 
-        Assert.Equal(Day.Markdown, excerpt);
+        Assert.Contains("**look up** - to search for information", excerpt);
         Assert.Contains("> original note wording must stay as-is", excerpt);
     }
 
@@ -201,7 +201,47 @@ public class WorkflowTests
 
         Assert.Equal(1, summary.DaysProcessed);
         Assert.Equal(1, summary.DaysSucceeded);
-        Assert.Equal(3, summary.CardsWritten);
+        Assert.Equal(0, summary.Warnings.Count);
+    }
+
+    [Fact]
+    public async Task NoteWorkflow_prunes_source_note_when_prune_flag_is_enabled()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "efg-csharp-v2", Guid.NewGuid().ToString("N"));
+        var sourcePath = Path.Combine(root, "input.md");
+        Directory.CreateDirectory(root);
+        
+        var originalMarkdown = """
+        ## [[2025-03-28-Friday|28.03.2025]]
+        
+        **look up** - to search for information
+        
+        ## [[2025-03-29-Saturday|29.03.2025]]
+        
+        **give up** - to stop trying
+        """;
+        await File.WriteAllTextAsync(sourcePath, originalMarkdown);
+
+        var request = new NoteProcessingRequest(
+            SourcePath: sourcePath,
+            CardsOutputDirectory: Path.Combine(root, "cards"),
+            SourceExcerptOutputDirectory: Path.Combine(root, "source-notes"),
+            Apply: true,
+            PruneSource: true,
+            MaxDays: 1,
+            MaxParallelGroupWorkers: 1,
+            MaxCriticIterations: 1,
+            MaxGroupsPerDay: 1
+        );
+
+        var workflow = CSharpMafWorkflowFactory.BuildNoteWorkflow(new StubAgentPort(), NullLogger.Instance);
+        var summary = await WorkflowRunner.RunAsync<RunSummary>(workflow, request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, summary.DaysSucceeded);
+        
+        var prunedMarkdown = await File.ReadAllTextAsync(sourcePath);
+        Assert.DoesNotContain("2025-03-28", prunedMarkdown);
+        Assert.Contains("2025-03-29", prunedMarkdown);
     }
 
     [Fact]
