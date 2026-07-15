@@ -5,6 +5,7 @@ using System.ClientModel;
 using System.ClientModel.Primitives;
 using System.Text.Json;
 using EnglishFlashcardGenerator.Core.Prompts;
+using EnglishFlashcardGenerator.Core.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace EnglishFlashcardGenerator.Core.Agents;
@@ -27,7 +28,7 @@ public sealed record LlmOptions(
     string BaseUrl,
     string ApiKey,
     string Model,
-    double Temperature = 0,
+    double? Temperature = null,
     int? MaxOutputTokens = null,
     TimeSpan? NetworkTimeout = null,
     int? MaxNetworkRetries = null);
@@ -94,9 +95,12 @@ public sealed class MafStructuredAgentPort(IChatClient chatClient, LlmOptions op
             var chatOptions = new ChatOptions
             {
                 Instructions = attemptInstructions,
-                Temperature = (float)options.Temperature,
                 ResponseFormat = ChatResponseFormat.ForJsonSchema<T>(JsonOptions, schemaName, schemaDescription)
             };
+            if (options.Temperature.HasValue)
+            {
+                chatOptions.Temperature = (float)options.Temperature.Value;
+            }
             if (options.MaxOutputTokens is { } maxTokens)
             {
                 chatOptions.MaxOutputTokens = maxTokens;
@@ -108,6 +112,15 @@ public sealed class MafStructuredAgentPort(IChatClient chatClient, LlmOptions op
             if (result is null)
             {
                 throw new InvalidOperationException("Structured response result was null.");
+            }
+
+            if (response.Usage?.InputTokenCount is { } inputTokens)
+            {
+                FlashcardMetrics.PromptTokens.Add(inputTokens, new KeyValuePair<string, object?>("agent", name));
+            }
+            if (response.Usage?.OutputTokenCount is { } outputTokens)
+            {
+                FlashcardMetrics.CompletionTokens.Add(outputTokens, new KeyValuePair<string, object?>("agent", name));
             }
 
             return result;

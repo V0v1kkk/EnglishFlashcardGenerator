@@ -1,6 +1,7 @@
 using EnglishFlashcardGenerator.Core.Agents;
 using EnglishFlashcardGenerator.Core.Markdown;
 using EnglishFlashcardGenerator.Core.Output;
+using EnglishFlashcardGenerator.Core.Telemetry;
 using Microsoft.Agents.AI.Workflows;
 using Microsoft.Extensions.Logging;
 
@@ -105,6 +106,7 @@ public static class CSharpMafWorkflowFactory
         var partition = Bind<ValidatedGroupPlan, WorkerPartitionPlan>("partition-groups", plan =>
         {
             logger.LogInformation("Day '{Heading}' planner identified {Count} valid groups.", plan.Day.Heading, plan.Groups.Count);
+            FlashcardMetrics.PlannerGroups.Record(plan.Groups.Count);
             var batches = Enumerable.Range(0, workerCount).Select(i => new WorkerBatch(i, [])).ToArray();
             var mutable = batches.Select(b => new List<TopicGroup>()).ToArray();
             for (var i = 0; i < plan.Groups.Count; i++) mutable[i % workerCount].Add(plan.Groups[i]);
@@ -201,6 +203,7 @@ public static class CSharpMafWorkflowFactory
                     string.IsNullOrWhiteSpace(card.Example) ? null : card.Example,
                     CardDirection.OneWay,
                     request.Group.GroupIndex)).ToArray();
+                FlashcardMetrics.CardsGenerated.Add(cards.Length, new KeyValuePair<string, object?>("group_kind", request.Group.Kind.ToString()));
                 return new TeacherDraft(request.Day, request.Group, request.Iteration, cards, request.Options, []);
             }
             catch (Exception ex)
@@ -224,6 +227,10 @@ public static class CSharpMafWorkflowFactory
                 var verdict = string.Equals(dto.Verdict, "approved", StringComparison.OrdinalIgnoreCase)
                     ? CriticVerdict.Approved
                     : string.Equals(dto.Verdict, "rejected", StringComparison.OrdinalIgnoreCase) ? CriticVerdict.Rejected : CriticVerdict.NeedsRevision;
+                
+                int findingsCount = dto.Findings?.Count ?? 0;
+                FlashcardMetrics.CriticFindings.Add(findingsCount, new KeyValuePair<string, object?>("verdict", dto.Verdict ?? ""));
+
                 var feedback = string.Join("\n", new[] { dto.Feedback ?? "" }.Concat((dto.Findings ?? Array.Empty<CriticFindingDto>()).Select(f => $"{f.CardFront}: {f.Issue}; {f.Recommendation}")));
                 return new CriticReview(draft.Day, draft.Group, draft, verdict, feedback, draft.Warnings);
             }
@@ -241,7 +248,13 @@ public static class CSharpMafWorkflowFactory
         });
         var finalize = Bind<RevisionDecision, GroupResult>("finalize-group-result", decision =>
         {
-            logger.LogInformation("Finalized group '{Group}'. Verdict: {Verdict}. Total iterations: {Iteration}. Cards kept: {Count}", decision.Group.Title, decision.Verdict, decision.Draft.Iteration, decision.Verdict == CriticVerdict.Rejected ? 0 : decision.Draft.Cards.Count);
+            int kept = decision.Verdict == CriticVerdict.Rejected ? 0 : decision.Draft.Cards.Count;
+            logger.LogInformation("Finalized group '{Group}'. Verdict: {Verdict}. Total iterations: {Iteration}. Cards kept: {Count}", decision.Group.Title, decision.Verdict, decision.Draft.Iteration, kept);
+            
+            FlashcardMetrics.TeacherIterations.Record(decision.Draft.Iteration, new KeyValuePair<string, object?>("verdict", decision.Verdict.ToString()));
+            FlashcardMetrics.CardsKept.Add(kept);
+            FlashcardMetrics.GroupVerdicts.Add(1, new KeyValuePair<string, object?>("verdict", decision.Verdict.ToString()));
+
             return new GroupResult(decision.Group, decision.Verdict == CriticVerdict.Rejected ? [] : decision.Draft.Cards, decision.Draft.Iteration, decision.Verdict == CriticVerdict.Approved, decision.Warnings);
         });
 

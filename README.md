@@ -15,6 +15,20 @@ During our experiments with smaller, weaker models (e.g., `gpt-5.4-nano`), we di
 2. **Loss of Coverage:** Weaker models tend to drop 50-80% of items from source notes if not strictly micromanaged. 
 3. **The Fix:** We completely eliminated manual string formatting from the Teacher prompt. Instead of asking the LLM to format cards with `??` inline, we shifted all structural constraints into the JSON schema itself (using `Front`, `Back`, `Example`, and `Direction` properties) and let the C# code build the Markdown strings. This decoupled formatting from reasoning, which drastically improved output consistency even on weak models. We also added explicit "Coverage Auditor" rules and "Few-Shot" BAD/GOOD examples to the prompt to force the model to adhere to masking constraints.
 
+## Model Benchmark Results
+
+We ran an automated benchmark using a 20-day synthetic sample set to compare generation quality, cost, and rule adherence across different models. Subjective evaluations were performed by independent LLM reviewer agents.
+
+| Model | Cards Kept | Total Cost | Cost per Card | Critic `needs_revision` | Rule Following (Bidirectional) | Atomicity | Hallucinations / External Knowledge |
+|-------|------------|------------|---------------|-------------------------|--------------------------------|-----------|-------------------------------------|
+| `gpt-5.4-nano` | 107 | $0.0208 | $0.00021 | 194 | Good (no bidirectional) | Mostly atomic | **High** (Invented Russian translations and grammar rules) |
+| `gpt-5.4-mini` | 151 | $0.0209 | $0.00014 | 15 | **Failed** (used bidirectional) | Atomic | **High** (Invented Russian translations leading to collisions) |
+| `gpt-5.6-luna` | 92 | $0.6920 | $0.00750 | 36 | Good (no bidirectional) | Highly atomic | **High** (Injected Russian translations, skipped some source concepts) |
+| `gpt-5.6-terra` | 141 | $0.3630 | $0.00250 | 18 | **Failed** (used bidirectional) | Atomic | **High** (Injected Russian translations) |
+| `gpt-5.6-sol` | 112 | $0.7660 | $0.00680 | 59 | Good (no bidirectional) | Atomic | **Minor** (Answered unprompted questions, added extra text) |
+
+*Note: All models exhibited a strong bias towards translating English definitions into Russian when generating cards, even when the source material was strictly in English. This suggests that the current prompts may need tighter language constraints if monolingual English cards are desired.*
+
 ## Shape
 
 - `src/EnglishFlashcardGenerator.Core` contains typed domain records, deterministic Markdown/output helpers, MAF workflow factories, and `ChatClientAgent`/`AIAgent` structured-output adapters.
@@ -22,6 +36,29 @@ During our experiments with smaller, weaker models (e.g., `gpt-5.4-nano`), we di
 - `tests/EnglishFlashcardGenerator.Core.Tests` contains deterministic stub workflow tests for routing and invariants.
 
 ## Workflow levels
+
+```mermaid
+graph TD
+    User([User CLI]) --> NoteWF[Note Workflow]
+    
+    subgraph Note Processing
+        NoteWF -->|Read & Split| DayWF[Day Workflow 1...N]
+    end
+    
+    subgraph Day Processing
+        DayWF -->|Plan Groups| PlannerAgent(EnglishGroupPlanner)
+        DayWF -->|Fan-out| GroupWF[GroupCard Workflow 1...M]
+    end
+    
+    subgraph Group Card Workflow
+        GroupWF --> TeacherAgent(EnglishFlashcardTeacher)
+        TeacherAgent --> CriticAgent(CardsCritic)
+        CriticAgent -->|Needs Revision| TeacherAgent
+        CriticAgent -->|Approved| GroupWF
+    end
+    
+    GroupWF -->|Format Markdown| Output[(File System)]
+```
 
 - `NoteWorkflow`: read source, split dated days, select bounded days, run `DayWorkflow` sequentially, emit `RunSummary`.
 - `DayWorkflow`: plan groups, validate, partition into a fixed worker pool, fan out to `GroupWorkerWorkflow[0..N-1]`, fan in with a barrier, dedupe, copy the source excerpt unchanged, format deterministic Obsidian SR Markdown, and write/dry-run.
@@ -86,7 +123,7 @@ Optional:
 
 - `LLM_TEMPERATURE`
 - `LLM_MAX_OUTPUT_TOKENS`
-- `LLM_NETWORK_TIMEOUT_SECONDS` (defaults to `600` for slow local models)
+- `LLM_NETWORK_TIMEOUT_SECONDS` (defaults to `600` for slow local models). **Note:** Default timeout might not be enough for heavy local reasoning models (like Qwen 3.6 27B) parsing large chunks of text. Requests may pile up in the queue or process very slowly. It is highly recommended to increase this value (e.g., to `3600`) if you encounter `TaskCanceledException` timeouts during local testing.
 - `LLM_MAX_NETWORK_RETRIES` (defaults to `5` to handle rate limits)
 
 The product CLI does not provide fake teacher/reviewer mode. Tests use deterministic stubs only for workflow routing and structured-output plumbing. If a provider returns malformed structured JSON, the agent boundary retries once with stricter JSON-only instructions and then fails with `AgentBoundaryException` naming the agent and DTO type.

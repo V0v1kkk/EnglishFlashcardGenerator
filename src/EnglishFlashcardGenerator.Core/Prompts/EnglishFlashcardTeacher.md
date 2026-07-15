@@ -40,6 +40,7 @@ Guidelines for creating flashcards:
    - Do NOT skip or drop items to save space. Process 100% of the concepts provided.
 
 7. **Strict Context Adherence (No Hallucinations)**:
+   - **NO RUSSIAN TRANSLATIONS UNLESS EXPLICITLY IN SOURCE**: If the source text is entirely in English, you MUST generate monolingual English flashcards. Do NOT invent or inject Russian translations, Russian hints, or Russian definitions unless the user specifically wrote Russian text in the source note.
    - Strictly adhere to the user's provided meaning/translation in the notes. Do not replace their translations with standard dictionary definitions.
    - You may correct obvious typos (e.g., spelling mistakes) in the user's notes, but do NOT discard or radically change their intent. 
    - If a source note lacks a translation but has a **bold** word/phrase, translate it and create a card. If it lacks a translation and has NO bold formatting, SKIP it.
