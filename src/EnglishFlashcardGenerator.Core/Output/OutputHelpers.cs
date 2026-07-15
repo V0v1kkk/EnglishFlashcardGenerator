@@ -10,7 +10,7 @@ public static partial class ObsidianSrFormatter
     {
         var front = CleanCardText(card.Front);
         var back = CleanCardText(card.Back);
-        var separator = card.Direction == CardDirection.Bidirectional ? "??" : "?";
+        var separator = "?";
         var parts = new List<string> { front, separator, back };
         var example = CleanCardText(card.Example ?? string.Empty);
         if (!string.IsNullOrWhiteSpace(example))

@@ -27,7 +27,7 @@ public sealed class StubAgentPort : IStructuredAgentPort
     {
         var suffix = request.Iteration > 1 ? " revised" : string.Empty;
         return ValueTask.FromResult(new TeacherOutputDto([
-            new TeacherCardDto($"Meaning of {request.Group.Title}{suffix}", request.Group.SourceExcerpt, "", "one-way")
+            new TeacherCardDto($"Meaning of {request.Group.Title}{suffix}", request.Group.SourceExcerpt, "")
         ]));
     }
 
@@ -92,11 +92,11 @@ public class MarkdownAndOutputTests
     {
         var formatted = ObsidianSrFormatter.FormatCards([
             new Flashcard("term::x\n<!--SR:!2025-01-01,1,250-->", "definition\nsr-due: tomorrow", null, CardDirection.OneWay, 0),
-            new Flashcard("look up", "to search", "I looked it up.", CardDirection.Bidirectional, 0)
+            new Flashcard("look up", "to search", "I looked it up.", CardDirection.OneWay, 0)
         ]);
 
         Assert.Contains("term:x\n?\ndefinition", formatted);
-        Assert.Contains("look up\n??\nto search\n*Example: I looked it up.*", formatted);
+        Assert.Contains("look up\n?\nto search\n*Example: I looked it up.*", formatted);
         Assert.DoesNotContain("::", formatted);
         Assert.DoesNotContain("<!--SR:", formatted);
         Assert.DoesNotContain("sr-due", formatted);
@@ -293,7 +293,7 @@ public class WorkflowTests
                 }
 
                 return ValueTask.FromResult(new TeacherOutputDto([
-                    new TeacherCardDto("look up", "search", null, "one-way")
+                    new TeacherCardDto("look up", "search", null)
                 ]));
             },
             TestContext.Current.CancellationToken);
@@ -318,7 +318,7 @@ public class WorkflowTests
                 }
 
                 return ValueTask.FromResult(new TeacherOutputDto([
-                    new TeacherCardDto("look up", "search", null, "one-way")
+                    new TeacherCardDto("look up", "search", null)
                 ]));
             },
             TestContext.Current.CancellationToken);

@@ -199,7 +199,7 @@ public static class CSharpMafWorkflowFactory
                     card.Front ?? "",
                     card.Back ?? "",
                     string.IsNullOrWhiteSpace(card.Example) ? null : card.Example,
-                    string.Equals(card.Direction, "bidirectional", StringComparison.OrdinalIgnoreCase) ? CardDirection.Bidirectional : CardDirection.OneWay,
+                    CardDirection.OneWay,
                     request.Group.GroupIndex)).ToArray();
                 return new TeacherDraft(request.Day, request.Group, request.Iteration, cards, request.Options, []);
             }

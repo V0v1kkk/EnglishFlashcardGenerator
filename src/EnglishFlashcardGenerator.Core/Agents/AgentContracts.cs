@@ -11,7 +11,7 @@ namespace EnglishFlashcardGenerator.Core.Agents;
 
 public sealed record TopicGroupDto(int SourceOrder, string Kind, string Title, string SourceExcerpt);
 public sealed record GroupPlanDto(IReadOnlyList<TopicGroupDto> Groups);
-public sealed record TeacherCardDto(string Front, string Back, string? Example, string Direction);
+public sealed record TeacherCardDto(string Front, string Back, string? Example);
 public sealed record TeacherOutputDto(IReadOnlyList<TeacherCardDto> Cards);
 public sealed record CriticFindingDto(string CardFront, string Issue, string Recommendation);
 public sealed record CriticOutputDto(string Verdict, string Feedback, IReadOnlyList<CriticFindingDto> Findings);
@@ -64,7 +64,7 @@ public sealed class MafStructuredAgentPort(IChatClient chatClient, LlmOptions op
 
     public async ValueTask<CriticOutputDto> ReviewCardsAsync(TeacherDraft draft, CancellationToken cancellationToken)
     {
-        var json = JsonSerializer.Serialize(draft.Cards.Select(c => new TeacherCardDto(c.Front, c.Back, c.Example, c.Direction == CardDirection.Bidirectional ? "bidirectional" : "one-way")), JsonOptions);
+        var json = JsonSerializer.Serialize(draft.Cards.Select(c => new TeacherCardDto(c.Front, c.Back, c.Example)), JsonOptions);
         var result = await RunAsync<CriticOutputDto>(
             "EnglishFlashcardCritic",
             "critic_flashcard_output",

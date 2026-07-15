@@ -34,7 +34,9 @@ public sealed record DayOutputDraft(DayChunk Day, IReadOnlyList<Flashcard> Cards
 public sealed record DayWritePlan(DayChunk Day, string CardsPath, string CardsMarkdown, int CardsCount, string SourceExcerptPath, string SourceExcerptMarkdown, bool Apply, IReadOnlyList<string> Warnings);
 public sealed record DayResult(DayChunk Day, bool Succeeded, int CardsCount, IReadOnlyList<string> OutputFiles, IReadOnlyList<string> Warnings);
 
-public enum CardDirection { OneWay, Bidirectional }
+public enum CardDirection { OneWay }
+
+public sealed record Card(string Front, string Back, string? Example, CardDirection Direction = CardDirection.OneWay);
 public sealed record Flashcard(string Front, string Back, string? Example, CardDirection Direction, int SourceGroupIndex);
 public sealed record GroupCardRequest(DayChunk Day, TopicGroup Group, NoteProcessingRequest Options);
 public sealed record TeacherRequest(DayChunk Day, TopicGroup Group, int Iteration, string? CriticFeedback, NoteProcessingRequest Options);
