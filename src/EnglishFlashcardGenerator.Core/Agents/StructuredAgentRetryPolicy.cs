@@ -36,6 +36,10 @@ public static class StructuredAgentRetryPolicy
             {
                 throw new AgentBoundaryException(agentName, typeof(T), "provider returned an invalid structured result after retry", ex);
             }
+            catch (FatalProviderException)
+            {
+                throw;
+            }
             catch (AgentBoundaryException)
             {
                 throw;

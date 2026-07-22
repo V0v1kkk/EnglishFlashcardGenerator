@@ -107,7 +107,34 @@ public sealed class MafStructuredAgentPort(IChatClient chatClient, LlmOptions op
             }
 
             var agent = new ChatClientAgent(chatClient, new ChatClientAgentOptions { Name = name, ChatOptions = chatOptions });
-            var response = await agent.RunAsync<T>(prompt, null, JsonOptions, null, ct).ConfigureAwait(false);
+            AgentResponse<T> response;
+            try
+            {
+                response = await agent.RunAsync<T>(prompt, null, JsonOptions, null, ct).ConfigureAwait(false);
+            }
+            catch (ClientResultException ex)
+            {
+                if (ex.Status is 401 or 402 or 403)
+                    throw new FatalProviderException($"Fatal authentication or quota error from provider (HTTP {ex.Status}).", ex);
+
+                var msg = ex.Message.ToLowerInvariant();
+                if (ex.Status == 429 && (msg.Contains("insufficient_quota") || msg.Contains("out of quota") || msg.Contains("capacity") || msg.Contains("balance")))
+                    throw new FatalProviderException($"Provider quota exceeded (HTTP 429): {ex.Message}", ex);
+
+                throw;
+            }
+            catch (HttpRequestException ex)
+            {
+                var status = (int?)ex.StatusCode;
+                if (status is 401 or 402 or 403)
+                    throw new FatalProviderException($"Fatal authentication or quota error from provider (HTTP {status}).", ex);
+
+                var msg = ex.Message.ToLowerInvariant();
+                if (status == 429 && (msg.Contains("insufficient_quota") || msg.Contains("out of quota") || msg.Contains("capacity") || msg.Contains("balance")))
+                    throw new FatalProviderException($"Provider quota exceeded (HTTP 429): {ex.Message}", ex);
+
+                throw;
+            }
             var result = response.Result;
             if (result is null)
             {

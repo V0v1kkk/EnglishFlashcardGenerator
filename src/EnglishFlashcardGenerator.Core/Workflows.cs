@@ -89,6 +89,10 @@ public static class CSharpMafWorkflowFactory
                     g.SourceOrder)).ToArray();
                 return new GroupPlan(request.Day, groups, request.Options);
             }
+            catch (FatalProviderException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 if (ct.IsCancellationRequested) throw;
@@ -206,6 +210,10 @@ public static class CSharpMafWorkflowFactory
                 FlashcardMetrics.CardsGenerated.Add(cards.Length, new KeyValuePair<string, object?>("group_kind", request.Group.Kind.ToString()));
                 return new TeacherDraft(request.Day, request.Group, request.Iteration, cards, request.Options, []);
             }
+            catch (FatalProviderException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 if (ct.IsCancellationRequested) throw;
@@ -233,6 +241,10 @@ public static class CSharpMafWorkflowFactory
 
                 var feedback = string.Join("\n", new[] { dto.Feedback ?? "" }.Concat((dto.Findings ?? Array.Empty<CriticFindingDto>()).Select(f => $"{f.CardFront}: {f.Issue}; {f.Recommendation}")));
                 return new CriticReview(draft.Day, draft.Group, draft, verdict, feedback, draft.Warnings);
+            }
+            catch (FatalProviderException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
