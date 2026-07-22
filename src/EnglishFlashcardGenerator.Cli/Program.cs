@@ -3,13 +3,6 @@ using EnglishFlashcardGenerator.Core.Agents;
 using EnglishFlashcardGenerator.Core.Telemetry;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics.Metrics;
-using System.Text.Json;
-
-static string? Option(string[] args, string name)
-{
-    var index = Array.IndexOf(args, name);
-    return index >= 0 && index + 1 < args.Length ? args[index + 1] : null;
-}
 
 static TimeSpan? OptionalSecondsEnvironment(string name)
 {
@@ -23,28 +16,17 @@ static int? OptionalNonNegativeEnvironment(string name)
     return int.TryParse(value, out var parsed) && parsed >= 0 ? parsed : null;
 }
 
-if (args.Length == 0 || args.Contains("--help"))
+if (!ProcessOptionsParser.TryParse(args, out var options, out var parseError))
 {
-    Console.WriteLine("english-flashcards process --source <path> --cards-out <dir> --source-notes-out <dir> [--max-days 1] [--max-groups-per-day 4] [--group-workers 2] [--max-critic-iterations 2] [--apply] [--prune-source] [--metrics-out <path>]");
-    return 0;
-}
+    if (parseError == "HELP")
+    {
+        Console.WriteLine("english-flashcards process --source <path> --cards-out <dir> --source-notes-out <dir> [--max-days 1] [--max-groups-per-day 4] [--group-workers 2] [--max-critic-iterations 2] [--apply] [--prune-source] [--metrics-out <path>] [--metrics-out-dir <dir>] [--skip-empty-metrics] [--summary-out <path>] [--no-metrics-stdout]");
+        return 0;
+    }
 
-if (args[0] != "process")
-{
-    Console.Error.WriteLine("Expected subcommand: process");
+    Console.Error.WriteLine(parseError);
     return 2;
 }
-
-var source = Option(args, "--source") ?? throw new ArgumentException("Missing --source");
-var cardsOut = Option(args, "--cards-out") ?? throw new ArgumentException("Missing --cards-out");
-var sourceOut = Option(args, "--source-notes-out") ?? throw new ArgumentException("Missing --source-notes-out");
-var maxDays = int.TryParse(Option(args, "--max-days"), out var md) ? md : 1;
-var workers = int.TryParse(Option(args, "--group-workers"), out var gw) ? gw : 2;
-var iterations = int.TryParse(Option(args, "--max-critic-iterations"), out var it) ? it : 2;
-var maxGroups = int.TryParse(Option(args, "--max-groups-per-day"), out var mg) ? mg : 4;
-var apply = args.Contains("--apply");
-var pruneSource = args.Contains("--prune-source");
-var metricsOut = Option(args, "--metrics-out");
 
 var baseUrl = Environment.GetEnvironmentVariable("LLM_BASE_URL");
 var apiKey = Environment.GetEnvironmentVariable("LLM_API_KEY");
@@ -59,7 +41,17 @@ var temperature = double.TryParse(Environment.GetEnvironmentVariable("LLM_TEMPER
 var maxTokens = int.TryParse(Environment.GetEnvironmentVariable("LLM_MAX_OUTPUT_TOKENS"), out var mt) ? mt : (int?)null;
 var networkTimeout = OptionalSecondsEnvironment("LLM_NETWORK_TIMEOUT_SECONDS") ?? TimeSpan.FromSeconds(600);
 var maxNetworkRetries = OptionalNonNegativeEnvironment("LLM_MAX_NETWORK_RETRIES") ?? 5;
-var request = new NoteProcessingRequest(source, cardsOut, sourceOut, apply, maxDays, workers, iterations, maxGroups, pruneSource);
+
+var request = new NoteProcessingRequest(
+    options!.SourcePath,
+    options.CardsOutputDirectory,
+    options.SourceExcerptOutputDirectory,
+    options.Apply,
+    options.MaxDays,
+    options.MaxParallelGroupWorkers,
+    options.MaxCriticIterations,
+    options.MaxGroupsPerDay,
+    options.PruneSource);
 
 var metricsAggregator = new Dictionary<string, double>();
 var histogramCounts = new Dictionary<string, int>();
@@ -117,55 +109,34 @@ var logger = loggerFactory.CreateLogger("Workflow");
 
 var agents = MafStructuredAgentPort.FromOpenAICompatible(new LlmOptions(baseUrl, apiKey, model, temperature, maxTokens, networkTimeout, maxNetworkRetries), loggerFactory);
 var workflow = CSharpMafWorkflowFactory.BuildNoteWorkflow(agents, logger);
+
+RunSummary summary;
 var sw = System.Diagnostics.Stopwatch.StartNew();
-var summary = await WorkflowRunner.RunAsync<RunSummary>(workflow, request);
+try
+{
+    summary = await WorkflowRunner.RunAsync<RunSummary>(workflow, request);
+}
+catch (Exception ex)
+{
+    sw.Stop();
+    Console.Error.WriteLine($"Workflow execution failed: {ex.Message}");
+    if (!string.IsNullOrWhiteSpace(options.SummaryOut) && File.Exists(options.SummaryOut))
+    {
+        try { File.Delete(options.SummaryOut); } catch { }
+    }
+    return 1;
+}
 sw.Stop();
 
 meterListener.RecordObservableInstruments();
 
-Console.WriteLine($"days={summary.DaysProcessed} succeeded={summary.DaysSucceeded} failed={summary.DaysFailed} cards={summary.CardsWritten}");
-foreach (var file in summary.OutputFiles)
+try
 {
-    Console.WriteLine(file);
+    var runResult = ProcessResultHandler.Process(summary, sw.Elapsed, metricsAggregator, histogramCounts, options, model);
+    return summary.DaysFailed == 0 ? 0 : 1;
 }
-
-var finalMetrics = new Dictionary<string, object>();
-finalMetrics["TotalDurationSeconds"] = sw.Elapsed.TotalSeconds;
-foreach (var kvp in metricsAggregator.OrderBy(k => k.Key))
+catch (Exception ex)
 {
-    if (histogramCounts.TryGetValue(kvp.Key, out var count))
-    {
-        finalMetrics[kvp.Key] = new { Sum = kvp.Value, Count = count, Average = kvp.Value / (double)count };
-    }
-    else
-    {
-        finalMetrics[kvp.Key] = kvp.Value;
-    }
+    Console.Error.WriteLine($"Error processing metrics/summary output: {ex.Message}");
+    return 1;
 }
-
-// Calculate Total Cost
-double promptRate = model.Contains("mini") ? 0.15 : model.Contains("nano") ? 0.05 : 2.50; // per 1M
-double completionRate = model.Contains("mini") ? 0.60 : model.Contains("nano") ? 0.20 : 10.00; // per 1M
-
-double totalPromptTokens = metricsAggregator.Where(k => k.Key.StartsWith("flashcards.tokens.prompt")).Sum(k => k.Value);
-double totalCompletionTokens = metricsAggregator.Where(k => k.Key.StartsWith("flashcards.tokens.completion")).Sum(k => k.Value);
-
-double totalCost = (totalPromptTokens / 1_000_000.0) * promptRate + (totalCompletionTokens / 1_000_000.0) * completionRate;
-double costPerCard = summary.CardsWritten > 0 ? totalCost / summary.CardsWritten : 0.0;
-
-finalMetrics["TotalCostUSD"] = totalCost;
-finalMetrics["CostPerCardUSD"] = costPerCard;
-finalMetrics["TotalPromptTokens"] = totalPromptTokens;
-finalMetrics["TotalCompletionTokens"] = totalCompletionTokens;
-
-
-var metricsJson = JsonSerializer.Serialize(finalMetrics, new JsonSerializerOptions { WriteIndented = true });
-Console.WriteLine("--- METRICS ---");
-Console.WriteLine(metricsJson);
-if (!string.IsNullOrWhiteSpace(metricsOut))
-{
-    File.WriteAllText(metricsOut, metricsJson);
-    Console.WriteLine($"Metrics saved to {metricsOut}");
-}
-
-return summary.DaysFailed == 0 ? 0 : 1;
