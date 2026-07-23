@@ -102,6 +102,29 @@ public class MarkdownAndOutputTests
         Assert.DoesNotContain("sr-due", formatted);
         Assert.DoesNotContain("[!sr|card-metadata]", formatted);
     }
+
+    [Theory]
+    [InlineData("[[2026-07-21-Tuesday]]", "[[2026-07-21-Tuesday]]")]
+    [InlineData("[[2025-03-28-Friday|28.03.2025]]", "[[2025-03-28-Friday|28.03.2025]]")]
+    [InlineData("2026-07-21-Tuesday", "[[2026-07-21-Tuesday]]")]
+    public void FormatDayReference_handles_wikilinks_and_plain_text(string heading, string expected)
+    {
+        var formatted = OutputPathBuilder.FormatDayReference(heading);
+        Assert.Equal(expected, formatted);
+    }
+
+    [Fact]
+    public void OutputPathBuilder_prevents_double_wikilink_brackets_in_learning_note()
+    {
+        var day = new DayChunk(0, new DateOnly(2026, 7, 21), "[[2026-07-21-Tuesday]]", "## [[2026-07-21-Tuesday]]\n\nSome text");
+        var options = new NoteProcessingRequest("source.md", "cards", "source-notes", false, 1, 1, 1, 1);
+        var draft = new DayOutputDraft(day, [], day.Markdown, options, []);
+
+        var plan = OutputPathBuilder.Build(draft);
+
+        Assert.Contains("References: [[English Learning notes]], [[2026-07-21-Tuesday]]", plan.SourceExcerptMarkdown);
+        Assert.DoesNotContain("[[[[", plan.SourceExcerptMarkdown);
+    }
 }
 
 public class WorkflowTests

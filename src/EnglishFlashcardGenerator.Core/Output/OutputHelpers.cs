@@ -41,6 +41,17 @@ public static partial class ObsidianSrFormatter
 
 public static class OutputPathBuilder
 {
+    public static string FormatDayReference(string heading)
+    {
+        var trimmed = heading.Trim();
+        if (trimmed.StartsWith("[[", StringComparison.Ordinal) && trimmed.EndsWith("]]", StringComparison.Ordinal))
+        {
+            return trimmed;
+        }
+
+        return $"[[{trimmed}]]";
+    }
+
     public static DayWritePlan Build(DayOutputDraft draft)
     {
         var date = draft.Day.Date?.ToString("yyyy-MM-dd") ?? $"day-{draft.Day.DayIndex + 1}";
@@ -66,6 +77,8 @@ References: [[EnglishLearningNote-{date}]]
         var lines = draft.DailySourceExcerptMarkdown.Split('\n');
         var body = lines.Length > 1 ? string.Join('\n', lines.Skip(1)).TrimStart() : string.Empty;
 
+        var dayReference = FormatDayReference(draft.Day.Heading);
+
         var sourceMarkdown = $"""
 ---
 tags:
@@ -73,7 +86,7 @@ tags:
   - english-learning-note
 creationTime: {creationTime}
 ---
-References: [[English Learning notes]], [[{draft.Day.Heading}]]
+References: [[English Learning notes]], {dayReference}
 
 {body}
 """;
